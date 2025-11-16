@@ -1,0 +1,26 @@
+# Project-wide .gitignore
+
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+# Keep the example for reference
+!.env.example
+
+# Uploaded or generated videos
+videos/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# OS-specific cruft
+.DS_Store
+
+# Build outputs
+dist/
+build/
+
+# Traefik ACME storage (certificates)
+traefik/acme.json

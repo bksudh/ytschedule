@@ -1,0 +1,210 @@
+version: "3.8"
+
+# Production stack optimized for security, reliability, and HTTPS.
+# - No dev bind mounts; images are built and run read-only where possible
+# - Only Traefik exposes ports (80/443)
+# - Health checks for all services
+# - Resource limits (Swarm deploy section; see README notes)
+# - Logging rotation via json-file driver
+# - Mongo backups via sidecar
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.file.filename=/etc/traefik/dynamic-config.yml
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=http
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic-config.yml:/etc/traefik/dynamic-config.yml:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    restart: unless-stopped
+    networks:
+      - web
+    volumes:
+      - mongodb_data:/data/db
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 })' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  backend:
+    build:
+      context: ./backend
+    image: ytsch-backend:prod
+    container_name: backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - VIDEOS_PATH=/usr/src/app/videos
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    # Read MongoDB URI from secret at runtime to avoid env exposure
+    secrets:
+      - mongodb_uri
+    command: ["/bin/sh", "-c", "export MONGODB_URI=$(cat /run/secrets/mongodb_uri); node server.js"]
+    volumes:
+      - videos_data:/usr/src/app/videos
+    networks:
+      - web
+    depends_on:
+      mongo:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=https"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=le"
+      - "traefik.http.services.backend.loadbalancer.server.port=3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    image: ytsch-frontend:prod
+    container_name: frontend
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=https"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=le"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  mongo-backup:
+    image: mongo:6
+    container_name: mongo-backup
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      - MONGODB_URI=${MONGODB_URI}
+    command: ["/bin/sh", "-c", "while true; do dt=$(date +%F_%H-%M-%S); mongodump --uri \"$MONGODB_URI\" --out /backup/$dt && find /backup -type d -mtime +7 -exec rm -rf {} +; sleep 86400; done"]
+    volumes:
+      - mongo_backups:/backup
+    networks:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "[ $(ls -1 /backup 2>/dev/null | wc -l) -ge 1 ] || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  web:
+    external: true
+
+volumes:
+  mongodb_data:
+  videos_data:
+  traefik_letsencrypt:
+  mongo_backups:
+
+secrets:
+  mongodb_uri:
+    file: ./secrets/mongodb_uri.txt

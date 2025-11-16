@@ -1,0 +1,22 @@
+# Docker ignore for backend service
+# Reduce build context size and avoid copying sensitive or large files.
+
+# Node.js dependencies are installed in the image
+node_modules
+
+# Debug logs
+npm-debug.log
+
+# Local environment files
+.env
+
+# VCS metadata and ignore config
+.git
+.gitignore
+
+# Docs and markdown files are not needed in image
+README.md
+*.md
+
+# Uploaded videos (mounted as a volume in runtime)
+videos/*

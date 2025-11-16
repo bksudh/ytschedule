@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YouTube Live Streaming Scheduler</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="branding">
+        <i class="fa-solid fa-tower-broadcast"></i>
+        <h1>YouTube Live Streaming Scheduler</h1>
+      </div>
+      <div class="status-bar">
+        <span class="status-item"><i class="fa-regular fa-heart"></i> <span id="health-status">Checking…</span></span>
+        <span class="status-item"><i class="fa-solid fa-signal"></i> Active Streams: <span id="streams-count">—</span></span>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- Upload Section -->
+      <section class="card" aria-labelledby="upload-title">
+        <div class="section-header">
+          <h2 id="upload-title"><i class="fa-solid fa-upload"></i> Upload Video</h2>
+        </div>
+        <form id="upload-form" class="form-grid">
+          <div class="form-row">
+            <label for="title">Video Title</label>
+            <input id="title" type="text" name="title" placeholder="My Awesome Stream" required />
+          </div>
+
+          <div class="form-row">
+            <label for="file">Video File</label>
+            <input id="file" type="file" name="file" accept="video/*" required />
+            <small id="file-info"><span id="file-size">—</span> • Estimated upload: <span id="upload-estimate">—</span></small>
+          </div>
+
+          <div class="form-row">
+            <label for="scheduledAt">Schedule Date &amp; Time</label>
+            <input id="scheduledAt" type="datetime-local" name="scheduledAt" required />
+          </div>
+
+          <div class="form-row">
+            <label for="rtmpUrl">RTMP URL</label>
+            <input id="rtmpUrl" type="text" name="rtmpUrl" value="rtmp://a.rtmp.youtube.com/live2" required />
+          </div>
+
+          <div class="form-row">
+            <label for="streamKey">Stream Key</label>
+            <input id="streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn primary"><i class="fa-solid fa-paper-plane"></i> Upload</button>
+          </div>
+
+          <div id="upload-progress" class="progress" hidden>
+            <div id="upload-progress-bar" class="progress-bar" style="width:0%"></div>
+          </div>
+        </form>
+        <div id="message" class="message" role="alert" aria-live="polite"></div>
+      </section>
+
+      <!-- Video List Section -->
+      <section class="card" aria-labelledby="videos-title">
+        <div class="section-header">
+          <h2 id="videos-title"><i class="fa-solid fa-film"></i> Videos</h2>
+          <div class="controls">
+            <div class="filters" id="filter-buttons" role="group" aria-label="Filters">
+              <button class="btn filter active" data-status="">All</button>
+              <button class="btn filter" data-status="scheduled">Scheduled</button>
+              <button class="btn filter" data-status="streaming">Streaming</button>
+              <button class="btn filter" data-status="completed">Completed</button>
+              <button class="btn filter" data-status="failed">Failed</button>
+            </div>
+            <div class="search">
+              <input id="search-input" type="search" placeholder="Search by title…" />
+            </div>
+          </div>
+        </div>
+
+        <div id="videos-grid" class="grid" aria-live="polite" aria-busy="false"></div>
+        <!-- Back-compat list for existing JS -->
+        <ul id="videos-list" class="legacy-list" hidden></ul>
+
+        <div id="empty-state" class="empty" hidden>
+          <i class="fa-regular fa-face-sad-tear"></i>
+          <p>No videos found. Upload one to get started.</p>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="app-footer">
+        <div class="links">
+          <a href="#" id="instructions-link"><i class="fa-regular fa-circle-question"></i> Instructions</a>
+          <a href="#" id="github-link"><i class="fa-brands fa-github"></i> GitHub</a>
+        </div>
+        <div class="copyright">&copy; <span id="year"></span> Live Scheduler</div>
+      </footer>
+    </main>
+
+    <!-- Loading Spinner Component -->
+    <div id="global-spinner" class="spinner" hidden>
+      <div class="spinner-inner"></div>
+    </div>
+
+    <script>
+      // Set min attribute on schedule to now
+      (function () {
+        const el = document.getElementById('scheduledAt');
+        if (!el) return;
+        const pad = (n) => String(n).padStart(2, '0');
+        const d = new Date();
+        const val = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        el.min = val;
+      })();
+
+      // File info and basic upload time estimate (assumes ~10 MB/s)
+      (function () {
+        const fileEl = document.getElementById('file');
+        const sizeEl = document.getElementById('file-size');
+        const estEl = document.getElementById('upload-estimate');
+        if (!fileEl) return;
+        fileEl.addEventListener('change', () => {
+          const f = fileEl.files && fileEl.files[0];
+          if (!f) { sizeEl.textContent = '—'; estEl.textContent = '—'; return; }
+          const mb = (f.size / (1024 * 1024));
+          sizeEl.textContent = `${mb.toFixed(1)} MB`;
+          const sec = mb / 10; // naive 10MB/s
+          const mins = Math.floor(sec / 60);
+          const rem = Math.round(sec % 60);
+          estEl.textContent = mins > 0 ? `${mins}m ${rem}s` : `${rem}s`;
+        });
+      })();
+
+      // Footer year
+      (function () { var y = document.getElementById('year'); if (y) y.textContent = new Date().getFullYear(); })();
+    </script>
+
+    <script src="js/config.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+  </html>

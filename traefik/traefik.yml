@@ -1,0 +1,49 @@
+# Traefik v2 static configuration
+# This file defines core Traefik settings: API, entry points,
+# certificate resolvers, providers, and logging.
+
+# 1) API: enable dashboard; insecure for development (exposes on :8080)
+api:
+  dashboard: true
+  insecure: true
+
+# 2) Entry Points: web (80) and websecure (443) with global HTTP->HTTPS redirect
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+# 3) Certificate Resolvers: Let's Encrypt (ACME) via HTTP challenge
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "your-email@example.com"
+      storage: "/acme.json"
+      httpChallenge:
+        entryPoint: web
+
+# 4) Providers: Docker and File
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: "web"
+  file:
+    filename: "/etc/traefik/dynamic-config.yml" # path inside the Traefik container
+    watch: true
+
+# 5) Log: level and format
+log:
+  level: "INFO"
+  format: "json"
+
+# 6) Access Log: enabled with JSON format
+accessLog:
+  format: "json"
