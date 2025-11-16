@@ -195,6 +195,7 @@
       <div class="card-body" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div>
           <div><strong>Scheduled:</strong> ${fmtDate(scheduled)}</div>
+          <div><strong>Stop At:</strong> ${fmtDate(video.stopTime)}</div>
           <div><strong>Duration:</strong> ${fmtDuration(video.duration)}</div>
           <div><strong>Size:</strong> ${fmtBytes(video.filesize)}</div>
         </div>
@@ -285,6 +286,7 @@
       const fileInput = el.form.querySelector('input[name="file"]');
       const titleInput = el.form.querySelector('input[name="title"]');
       const schedInput = el.form.querySelector('input[name="scheduledAt"]');
+      const stopInput = el.form.querySelector('input[name="stopAt"]');
       const rtmpInput = el.form.querySelector('input[name="rtmpUrl"]');
       const keyInput = el.form.querySelector('input[name="streamKey"]');
 
@@ -293,6 +295,7 @@
       const scheduleTime = schedInput?.value;
       const rtmpUrl = rtmpInput?.value?.trim();
       const streamKey = keyInput?.value?.trim();
+      const stopAt = stopInput?.value || '';
 
       // Validation
       if (!file) return setMessage('Please choose a video file.', 'error');
@@ -309,6 +312,13 @@
       if (!scheduleTime) return setMessage('Schedule date/time is required.', 'error');
       if (!rtmpUrl) return setMessage('RTMP URL is required.', 'error');
       if (!streamKey || streamKey.length < 16) return setMessage('Stream key must be at least 16 characters.', 'error');
+      if (stopAt) {
+        const sched = new Date(scheduleTime);
+        const stop = new Date(stopAt);
+        if (isFinite(sched.getTime()) && isFinite(stop.getTime()) && stop <= sched) {
+          return setMessage('Stop time must be later than schedule time.', 'error');
+        }
+      }
 
       const submitBtn = el.form.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
@@ -319,6 +329,7 @@
       // Backend expects /upload with field name 'video' and 'scheduleTime'
       fd.append('video', file, file.name);
       fd.append('scheduleTime', new Date(scheduleTime).toISOString());
+      if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
       fd.append('rtmpUrl', rtmpUrl);
       fd.append('streamKey', streamKey);
 
@@ -427,6 +438,7 @@
       <div class="form-grid">
         <div class="form-row"><label>Title<input type="text" id="edit-title" value="${escapeHtml(video.title || '')}"></label></div>
         <div class="form-row"><label>Schedule<input type="datetime-local" id="edit-schedule" value="${toLocalInputValue(video.scheduleTime || video.scheduledAt)}"></label></div>
+        <div class="form-row"><label>Stop At<input type="datetime-local" id="edit-stop" value="${toLocalInputValue(video.stopTime)}"></label></div>
         <div class="form-row"><label>RTMP URL<input type="text" id="edit-rtmp" value="${escapeHtml(video.rtmpUrl || '')}"></label></div>
         <div class="form-row"><label>Stream Key<input type="password" id="edit-key" value="${escapeHtml(video.streamKey || '')}"></label></div>
       </div>
@@ -446,12 +458,22 @@
       const schedule = content.querySelector('#edit-schedule').value;
       const rtmp = content.querySelector('#edit-rtmp').value.trim();
       const key = content.querySelector('#edit-key').value.trim();
+      const stopVal = content.querySelector('#edit-stop').value;
       if (!title) { showToast('Title is required', 'error'); return; }
       if (!schedule) { showToast('Schedule is required', 'error'); return; }
       if (!rtmp) { showToast('RTMP URL is required', 'error'); return; }
       if (!key || key.length < 16) { showToast('Stream key must be >= 16 chars', 'error'); return; }
+      if (stopVal) {
+        const sched = new Date(schedule);
+        const stop = new Date(stopVal);
+        if (isFinite(sched.getTime()) && isFinite(stop.getTime()) && stop <= sched) {
+          showToast('Stop time must be later than schedule time', 'error');
+          return;
+        }
+      }
       try {
         const body = { title, scheduleTime: new Date(schedule).toISOString(), rtmpUrl: rtmp, streamKey: key };
+        if (stopVal) body.stopTime = new Date(stopVal).toISOString();
         const updated = await fetchJSON(`${API_URL}/videos/${video._id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

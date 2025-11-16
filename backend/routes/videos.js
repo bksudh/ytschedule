@@ -89,6 +89,7 @@ router.post(
   [
     body('title').isString().trim().isLength({ min: 1 }),
     body('scheduleTime').isISO8601(),
+    body('stopTime').optional().isISO8601(),
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
   ],
@@ -102,6 +103,7 @@ router.post(
       const filepath = path.join(uploadDir, req.file.filename);
       const filesize = req.file.size;
       const scheduleTime = new Date(req.body.scheduleTime);
+      const stopTime = req.body.stopTime ? new Date(req.body.stopTime) : undefined;
 
       let duration = undefined;
       try {
@@ -124,6 +126,7 @@ router.post(
         filesize,
         duration,
         scheduleTime,
+        stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
         status: 'scheduled',
@@ -143,6 +146,7 @@ router.post(
     body('title').isString().trim().isLength({ min: 1 }),
     body('scheduledAt').optional().isISO8601(),
     body('scheduleTime').optional().isISO8601(),
+    body('stopTime').optional().isISO8601(),
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
   ],
@@ -153,6 +157,7 @@ router.post(
       if (!req.file) return res.status(400).json({ error: 'File is required' });
 
       const scheduledAt = req.body.scheduleTime || req.body.scheduledAt; // virtual handles scheduledAt
+      const stopTime = req.body.stopTime ? new Date(req.body.stopTime) : undefined;
       const filepath = path.join(uploadDir, req.file.filename);
       const filesize = req.file.size;
 
@@ -177,6 +182,7 @@ router.post(
         filesize,
         duration,
         scheduledAt, // virtual maps to scheduleTime
+        stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
         status: 'scheduled',
@@ -247,6 +253,7 @@ router.put(
     param('id').isMongoId(),
     body('title').optional().isString().trim().isLength({ min: 1 }),
     body('scheduleTime').optional().isISO8601(),
+    body('stopTime').optional().isISO8601(),
     body('rtmpUrl').optional().isString().trim().isLength({ min: 1 }),
     body('streamKey').optional().isString().trim().isLength({ min: 16 }),
   ],
@@ -261,6 +268,7 @@ router.put(
       if (req.body.title) video.title = req.body.title;
       if (req.body.scheduleTime) video.scheduleTime = new Date(req.body.scheduleTime);
       if (req.body.rtmpUrl) video.rtmpUrl = req.body.rtmpUrl;
+      if (req.body.stopTime) video.stopTime = new Date(req.body.stopTime);
       if (req.body.streamKey) video.streamKey = req.body.streamKey;
       await video.save();
       res.json(video);

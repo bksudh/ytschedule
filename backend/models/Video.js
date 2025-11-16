@@ -8,6 +8,8 @@ const VideoSchema = new mongoose.Schema(
     filesize: { type: Number, min: 0 },
     duration: { type: Number, min: 0 }, // seconds
     scheduleTime: { type: Date, required: true, index: true },
+    // Optional planned stop time for auto-stopping the stream
+    stopTime: { type: Date, required: false, index: true },
     rtmpUrl: { type: String, required: true, trim: true },
     streamKey: { type: String, required: true, trim: true }, // store encrypted value
     status: {
@@ -41,6 +43,7 @@ VideoSchema.virtual('scheduledAt')
 
 // Indexes for common queries
 VideoSchema.index({ status: 1, scheduleTime: 1 });
+VideoSchema.index({ status: 1, stopTime: 1 });
 VideoSchema.index({ createdBy: 1 });
 VideoSchema.index({ uploadedAt: 1 });
 
@@ -86,6 +89,11 @@ VideoSchema.pre('save', function (next) {
   // Temporal consistency
   if (this.streamStartedAt && this.streamEndedAt && this.streamEndedAt < this.streamStartedAt) {
     return next(new Error('streamEndedAt cannot be earlier than streamStartedAt'));
+  }
+
+  // Ensure stopTime (if provided) is not earlier than scheduleTime
+  if (this.stopTime && this.scheduleTime && this.stopTime < this.scheduleTime) {
+    return next(new Error('stopTime must be later than scheduleTime'));
   }
 
   next();

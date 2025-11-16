@@ -110,35 +110,46 @@ const healthHandler = (req, res) => {
 app.get('/api/health', healthHandler);
 app.get('/health', healthHandler);
 
-// Cron: every minute, start all due scheduled videos
+// Cron: every minute, auto-stop streams at stopTime and start next due video (sequential)
 function startCron() {
   if (cronTask) return cronTask;
   cronTask = cron.schedule('* * * * *', async () => {
     if (dbStatus !== 'connected') return;
     const now = new Date();
     try {
-      const due = await Video.find({ status: 'scheduled', scheduleTime: { $lte: now } }).sort({ scheduleTime: 1 });
-      if (!due.length) return;
-      console.log(`[Cron] Found ${due.length} due video(s).`);
-      for (const v of due) {
+      // 1) Stop any streaming videos whose stopTime has arrived
+      const toStop = await Video.find({ status: 'streaming', stopTime: { $exists: true, $lte: now } });
+      for (const v of toStop) {
         try {
-          await streamer.startStream(v._id.toString());
-          console.log(`[Cron] Started stream for: ${v.title}`);
+          const ok = await streamer.stopStream(v._id.toString());
+          console.log(`[Cron] Auto-stopped ${v.title} at planned stopTime (${ok ? 'ok' : 'no active process'})`);
         } catch (err) {
-          console.error(`[Cron] Failed to start stream for ${v._id}: ${err.message}`);
-          try {
-            v.status = 'failed';
-            v.errorMessage = err.message;
-            v.streamEndedAt = new Date();
-            await v.save();
-          } catch (_) {}
+          console.error(`[Cron] Failed to auto-stop ${v._id}: ${err.message}`);
         }
+      }
+
+      // 2) If no active streams, start the next due scheduled video
+      const activeCount = streamer.getAllActiveStreams().length;
+      if (activeCount > 0) return;
+      const next = await Video.findOne({ status: 'scheduled', scheduleTime: { $lte: now } }).sort({ scheduleTime: 1 });
+      if (!next) return;
+      try {
+        await streamer.startStream(next._id.toString());
+        console.log(`[Cron] Started stream for: ${next.title}`);
+      } catch (err) {
+        console.error(`[Cron] Failed to start stream for ${next._id}: ${err.message}`);
+        try {
+          next.status = 'failed';
+          next.errorMessage = err.message;
+          next.streamEndedAt = new Date();
+          await next.save();
+        } catch (_) {}
       }
     } catch (err) {
       console.error(`[Cron] Job error: ${err.message}`);
     }
   }, { scheduled: true });
-  console.log('[Cron] Job scheduled to run every minute.');
+  console.log('[Cron] Job scheduled to run every minute (auto-stop + sequential start).');
   return cronTask;
 }
 
