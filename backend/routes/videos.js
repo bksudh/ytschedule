@@ -282,6 +282,178 @@ router.post(
   }
 );
 
+// URL-based external streaming routes (placed BEFORE any ':id/stream/*' to avoid route shadowing)
+// POST /url/stream/start — start streaming from a direct URL (YouTube supported)
+router.post(
+  '/url/stream/start',
+  rateLimit(5, 60_000),
+  optionalAuth,
+  [
+    body('sourceUrl').isString().trim().isLength({ min: 1 }),
+    body('rtmpUrl').isString().trim().isLength({ min: 1 }),
+    body('streamKey').isString().trim().isLength({ min: 8 }),
+  ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const { sourceUrl, rtmpUrl, streamKey } = req.body;
+      try {
+        const { streamId } = await streamer.startUrlStream(sourceUrl, { rtmpUrl, streamKey });
+        return res.json({ success: true, message: 'External stream started', streamId });
+      } catch (err) {
+        const msg = err && err.message ? err.message : 'Failed to start external stream';
+        if (/Invalid RTMP URL|stream key/i.test(msg)) return res.status(400).json({ error: msg });
+        return res.status(500).json({ error: msg });
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /url/stream/schedule — schedule an external URL stream
+router.post(
+  '/url/stream/schedule',
+  rateLimit(5, 60_000),
+  optionalAuth,
+  [
+    body('sourceUrl').isString().trim().isLength({ min: 1 }),
+    body('rtmpUrl').isString().trim().isLength({ min: 1 }),
+    body('streamKey').isString().trim().isLength({ min: 8 }),
+    body('scheduleTime').isISO8601().toDate(),
+    body('stopTime').optional({ nullable: true }).isISO8601().toDate(),
+  ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const ExternalJob = require('../models/ExternalJob');
+      const { sourceUrl, rtmpUrl, streamKey, scheduleTime, stopTime } = req.body;
+      if (new Date(scheduleTime) < new Date()) {
+        return res.status(400).json({ error: 'Schedule time must be in the future' });
+      }
+      const job = await ExternalJob.create({ sourceUrl, rtmpUrl, streamKey, scheduleTime, stopTime, status: 'scheduled' });
+      return res.status(201).json({ success: true, jobId: job._id, message: 'External URL stream scheduled' });
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /url/stream/schedule/cancel — cancel a scheduled external job
+router.post(
+  '/url/stream/schedule/cancel',
+  rateLimit(5, 60_000),
+  requireAuth,
+  [ body('jobId').isString().trim().isLength({ min: 1 }) ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const ExternalJob = require('../models/ExternalJob');
+      const job = await ExternalJob.findById(req.body.jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      if (job.status !== 'scheduled') return res.status(400).json({ error: 'Job not in scheduled state' });
+      job.status = 'cancelled';
+      job.endedAt = new Date();
+      await job.save();
+      return res.json({ success: true, message: 'Scheduled job cancelled' });
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /url/stream/schedule/stop — stop a running external job
+router.post(
+  '/url/stream/schedule/stop',
+  rateLimit(5, 60_000),
+  requireAuth,
+  [ body('jobId').isString().trim().isLength({ min: 1 }) ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const ExternalJob = require('../models/ExternalJob');
+      const job = await ExternalJob.findById(req.body.jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      if (job.status !== 'streaming' || !job.streamId) return res.status(400).json({ error: 'Job is not currently streaming' });
+      const ok = await streamer.stopExternalStream(job.streamId);
+      if (!ok) return res.status(400).json({ error: 'No active stream process for this job' });
+      return res.json({ success: true, message: 'Stop requested' });
+    } catch (err) { next(err); }
+  }
+);
+
+// GET /url/stream/schedules — list upcoming scheduled external jobs
+router.get(
+  '/url/stream/schedules',
+  rateLimit(10, 60_000),
+  optionalAuth,
+  async (req, res, next) => {
+    try {
+      const ExternalJob = require('../models/ExternalJob');
+      const limit = Math.min(Number(req.query.limit || 20), 50);
+      const jobs = await ExternalJob.find({ status: 'scheduled' }).sort({ scheduleTime: 1 }).limit(limit).lean().exec();
+      res.set('Cache-Control', 'no-store');
+      return res.json({ jobs });
+    } catch (err) { next(err); }
+  }
+);
+
+// GET /url/stream/schedule/status/:id — status of a scheduled/running external job
+router.get(
+  '/url/stream/schedule/status/:id',
+  rateLimit(10, 60_000),
+  optionalAuth,
+  [ param('id').isString().trim().isLength({ min: 1 }) ],
+  async (req, res, next) => {
+    try {
+      const ExternalJob = require('../models/ExternalJob');
+      const job = await ExternalJob.findById(req.params.id).lean().exec();
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      res.set('Cache-Control', 'no-store');
+      return res.json(job);
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /url/stream/stop — stop an external stream by streamId
+router.post(
+  '/url/stream/stop',
+  rateLimit(5, 60_000),
+  requireAuth,
+  [body('streamId').isString().trim().isLength({ min: 1 })],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const ok = await streamer.stopExternalStream(req.body.streamId);
+      if (!ok) return res.status(400).json({ error: 'No active external stream for provided id' });
+      return res.json({ success: true, message: 'External stream stop requested' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /url/stream/status/:id — check external stream status
+router.get(
+  '/url/stream/status/:id',
+  rateLimit(15, 60_000),
+  optionalAuth,
+  [param('id').isString().trim().isLength({ min: 1 })],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const status = streamer.getStreamStatus(req.params.id);
+      res.set('Cache-Control', 'no-store');
+      if (!status || !status.active) return res.json({ active: false, error: status && status.error });
+      return res.json({ active: true, startedAt: status.startedAt, progress: status.progress || 0, outputUrl: status.outputUrl });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // 3. GET /:id
 router.get(
   '/:id',

@@ -35,6 +35,7 @@
   const el = {
     health: document.getElementById('health-status'),
     streamsCount: document.getElementById('streams-count'),
+    navActiveCount: document.getElementById('nav-active-count'),
     nav: document.getElementById('main-nav'),
     sectionUpload: document.getElementById('section-upload'),
     sectionLibraryUpload: document.getElementById('section-library-upload'),
@@ -61,6 +62,22 @@
     playlistsList: document.getElementById('playlists-list'),
     playlistsEmpty: document.getElementById('playlists-empty'),
     themeToggle: document.getElementById('theme-toggle'),
+    sectionActiveStreams: document.getElementById('section-active-streams'),
+    activeStreamsList: document.getElementById('active-streams-list'),
+    activeStreamsEmpty: document.getElementById('active-streams-empty'),
+    sectionUrlStream: document.getElementById('section-url-stream'),
+    urlForm: document.getElementById('url-stream-form'),
+    urlSource: document.getElementById('url-source'),
+    urlRtmp: document.getElementById('url-rtmpUrl'),
+    urlKey: document.getElementById('url-streamKey'),
+    urlMsg: document.getElementById('url-message'),
+    urlStatus: document.getElementById('url-status'),
+    urlStartBtn: document.getElementById('url-start-btn'),
+    urlStopBtn: document.getElementById('url-stop-btn'),
+    urlScheduleStart: document.getElementById('url-scheduleStart'),
+    urlScheduleStop: document.getElementById('url-scheduleStop'),
+    urlScheduleBtn: document.getElementById('url-schedule-btn'),
+    urlCancelScheduleBtn: document.getElementById('url-cancel-schedule-btn'),
   };
 
   /** Utilities */
@@ -71,7 +88,7 @@
    * @returns {Promise<any>}
    */
   async function fetchJSON(url, options) {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { cache: 'no-store', ...(options || {}) });
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try { msg = await res.text(); } catch (_) {}
@@ -204,6 +221,108 @@
     };
     const m = map[status] || map[STATUS.SCHEDULED];
     return `<span class="${m.cls}"><i class="${m.icon}"></i>${m.label}</span>`;
+  }
+
+  /** Active Streams UI */
+  function createActiveCard(item) {
+    const id = item.id;
+    const title = item.title || (item.type === 'external' ? 'External URL' : 'Video Stream');
+    const started = fmtDate(item.startedAt);
+    const plLine = item.type === 'video' && item.playlistName ? `<div><strong>Playlist:</strong> ${escapeHtml(item.playlistName)}</div>` : '';
+    const outUrl = item.outputUrl ? `<div><strong>Output:</strong> ${escapeHtml(item.outputUrl)}</div>` : '';
+    const progressStr = item.type === 'external'
+      ? (typeof item.progress === 'number' ? fmtDuration(item.progress) : '')
+      : (typeof item.progress === 'number' ? `${item.progress}%` : '');
+    const srcLine = item.type === 'external' && item.sourceUrl ? `<div><strong>Source:</strong> ${escapeHtml(item.sourceUrl)}</div>` : '';
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.id = id;
+    card.dataset.type = item.type;
+    card.innerHTML = `
+      <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <h3 style="margin:0;">${escapeHtml(title)}</h3>
+          ${renderBadge(STATUS.STREAMING)}
+        </div>
+        <div class="card-actions" style="display:flex;gap:8px;">
+          <button class="btn warning" data-action="stop-active" data-id="${id}" data-type="${item.type}"><i class="fa-solid fa-stop"></i> Stop</button>
+        </div>
+      </div>
+      <div class="card-body" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <div><strong>Started:</strong> ${started}</div>
+          ${srcLine}
+          ${plLine}
+        </div>
+        <div>
+          <div><strong>Progress:</strong> ${progressStr || '—'}</div>
+          ${outUrl}
+        </div>
+      </div>
+    `;
+    return card;
+  }
+
+  function renderActiveStreams(items) {
+    if (!el.activeStreamsList) return;
+    el.activeStreamsList.innerHTML = '';
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) {
+      if (el.activeStreamsEmpty) el.activeStreamsEmpty.hidden = false;
+      return;
+    }
+    if (el.activeStreamsEmpty) el.activeStreamsEmpty.hidden = true;
+    const frag = document.createDocumentFragment();
+    list.forEach(item => frag.appendChild(createActiveCard(item)));
+    el.activeStreamsList.appendChild(frag);
+  }
+
+  async function loadActiveStreams() {
+    try {
+      const data = await fetchJSON(`${API_URL}/streams/active`);
+      const items = Array.isArray(data && data.active) ? data.active : [];
+      renderActiveStreams(items);
+      if (el.streamsCount && typeof data.count === 'number') {
+        el.streamsCount.textContent = String(data.count);
+      }
+      if (el.navActiveCount && typeof data.count === 'number') {
+        el.navActiveCount.textContent = String(data.count);
+      }
+    } catch (err) {
+      if (el.activeStreamsEmpty) {
+        el.activeStreamsEmpty.hidden = false;
+        const p = el.activeStreamsEmpty.querySelector('p');
+        if (p) p.textContent = 'Unable to load active streams.';
+      }
+    }
+  }
+
+  function setupActiveActions() {
+    if (!el.activeStreamsList) return;
+    el.activeStreamsList.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-action="stop-active"]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const type = btn.getAttribute('data-type');
+      const ok = confirm('Stop this active stream?');
+      if (!ok) return;
+      btn.disabled = true; btn.classList.add('loading');
+      try {
+        if (type === 'external') {
+          await fetchJSON(`${API_URL}/videos/url/stream/stop`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ streamId: id })
+          });
+        } else {
+          await fetchJSON(`${API_URL}/videos/${id}/stream/stop`, { method: 'POST' });
+        }
+        showToast('Stop requested', 'warn');
+        await Promise.all([loadActiveStreams(), loadVideos()]);
+      } catch (err) {
+        showToast(`Failed to stop: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false; btn.classList.remove('loading');
+      }
+    });
   }
 
   /** Create a card element for a video */
@@ -833,16 +952,21 @@
       const isPlaylist = view === 'playlist';
       const isLive = view === 'live';
       const isLibrary = view === 'library';
+      const isActive = view === 'active';
 
       // Toggle sections
       if (el.sectionPlaylistForm) el.sectionPlaylistForm.hidden = !isPlaylist;
       if (el.sectionPlaylists) el.sectionPlaylists.hidden = !isPlaylist;
-      if (el.sectionUpload) el.sectionUpload.hidden = !isLive;
+      if (el.sectionUpload) el.sectionUpload.hidden = !(isLive);
+      if (el.sectionActiveStreams) el.sectionActiveStreams.hidden = !(isLive || isActive);
+      if (el.sectionUrlStream) el.sectionUrlStream.hidden = !(isLive);
       if (el.sectionLibraryUpload) el.sectionLibraryUpload.hidden = !isLibrary;
-      if (el.sectionVideos) el.sectionVideos.hidden = isPlaylist; // videos visible in live + library
+      if (el.sectionVideos) el.sectionVideos.hidden = isPlaylist || isActive; // hide videos in active view
 
       // Set default filter per view
-      if (isLibrary) {
+      if (isActive) {
+        setFilter(STATUS.STREAMING);
+      } else if (isLibrary) {
         setFilter(STATUS.LIBRARY);
       } else if (isLive) {
         setFilter(STATUS.SCHEDULED);
@@ -865,13 +989,199 @@
     showView('live');
   }
 
+  /** URL Stream form */
+  let externalStreamId = '';
+  let urlStatusTimer = null;
+  let scheduledJobId = '';
+  function setUrlMessage(text, cls = 'info') {
+    if (!el.urlMsg) return;
+    el.urlMsg.textContent = text;
+    el.urlMsg.className = `message ${cls}`;
+  }
+  function updateUrlStatus(text) {
+    if (!el.urlStatus) return;
+    el.urlStatus.textContent = text || '';
+  }
+  function setupUrlStreamForm() {
+    if (!el.urlForm) return;
+    try {
+      if (cfg.DEFAULT_RTMP_URL && el.urlRtmp) {
+        el.urlRtmp.value = cfg.DEFAULT_RTMP_URL;
+      }
+      const help = document.getElementById('yt-help-link');
+      if (help && cfg.YOUTUBE_HELP_URL) {
+        help.addEventListener('click', (e) => { e.preventDefault(); window.open(cfg.YOUTUBE_HELP_URL, '_blank'); });
+      }
+    } catch (_) {}
+
+    el.urlForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setUrlMessage('', 'info');
+      updateUrlStatus('');
+      const sourceUrl = el.urlSource?.value?.trim();
+      const rtmpUrl = el.urlRtmp?.value?.trim();
+      const streamKey = el.urlKey?.value?.trim();
+      if (!sourceUrl) { setUrlMessage('YouTube URL is required.', 'error'); return; }
+      if (!rtmpUrl) { setUrlMessage('RTMP URL is required.', 'error'); return; }
+      if (!streamKey || streamKey.length < 8) { setUrlMessage('Stream key must be at least 8 characters.', 'error'); return; }
+      el.urlStartBtn.disabled = true; el.urlStartBtn.classList.add('loading');
+      try {
+        const res = await fetchJSON(`${API_URL}/videos/url/stream/start`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceUrl, rtmpUrl, streamKey })
+        });
+        externalStreamId = res?.streamId || '';
+        if (!externalStreamId) throw new Error('No streamId returned');
+        setUrlMessage('External stream started. Opening status...', 'success');
+        el.urlStopBtn.hidden = false;
+        scheduledJobId = '';
+        startUrlStatusPoll();
+      } catch (err) {
+        setUrlMessage(`Failed to start: ${err.message}`, 'error');
+      } finally {
+        el.urlStartBtn.disabled = false; el.urlStartBtn.classList.remove('loading');
+      }
+    });
+
+    el.urlStopBtn.addEventListener('click', async () => {
+      if (!externalStreamId) { setUrlMessage('No active external stream.', 'warn'); return; }
+      el.urlStopBtn.disabled = true; el.urlStopBtn.classList.add('loading');
+      try {
+        await fetchJSON(`${API_URL}/videos/url/stream/stop`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ streamId: externalStreamId })
+        });
+        setUrlMessage('Stop requested.', 'warn');
+        stopUrlStatusPoll();
+        externalStreamId = '';
+        el.urlStopBtn.hidden = true;
+        updateUrlStatus('');
+      } catch (err) {
+        setUrlMessage(`Failed to stop: ${err.message}`, 'error');
+      } finally {
+        el.urlStopBtn.disabled = false; el.urlStopBtn.classList.remove('loading');
+      }
+    });
+
+    // Schedule from URL
+    if (el.urlScheduleBtn) {
+      el.urlScheduleBtn.addEventListener('click', async () => {
+        setUrlMessage('', 'info');
+        updateUrlStatus('');
+        const sourceUrl = el.urlSource?.value?.trim();
+        const rtmpUrl = el.urlRtmp?.value?.trim();
+        const streamKey = el.urlKey?.value?.trim();
+        const scheduleTimeStr = el.urlScheduleStart?.value?.trim();
+        const stopTimeStr = el.urlScheduleStop?.value?.trim();
+        if (!sourceUrl) { setUrlMessage('YouTube URL is required.', 'error'); return; }
+        if (!rtmpUrl) { setUrlMessage('RTMP URL is required.', 'error'); return; }
+        if (!streamKey || streamKey.length < 8) { setUrlMessage('Stream key must be at least 8 characters.', 'error'); return; }
+        if (!scheduleTimeStr) { setUrlMessage('Please select a schedule start time.', 'error'); return; }
+        const scheduleTime = new Date(scheduleTimeStr).toISOString();
+        const stopTime = stopTimeStr ? new Date(stopTimeStr).toISOString() : undefined;
+        el.urlScheduleBtn.disabled = true; el.urlScheduleBtn.classList.add('loading');
+        try {
+          const res = await fetchJSON(`${API_URL}/videos/url/stream/schedule`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceUrl, rtmpUrl, streamKey, scheduleTime, stopTime })
+          });
+          scheduledJobId = res?.jobId || res?._id || '';
+          if (!scheduledJobId) throw new Error('No jobId returned');
+          externalStreamId = '';
+          setUrlMessage('Scheduled successfully.', 'success');
+          updateUrlStatus(`Scheduled for ${fmtDate(scheduleTime)}`);
+          startUrlStatusPoll();
+        } catch (err) {
+          setUrlMessage(`Failed to schedule: ${err.message}`, 'error');
+        } finally {
+          el.urlScheduleBtn.disabled = false; el.urlScheduleBtn.classList.remove('loading');
+        }
+      });
+    }
+
+    // Cancel schedule
+    if (el.urlCancelScheduleBtn) {
+      el.urlCancelScheduleBtn.addEventListener('click', async () => {
+        if (!scheduledJobId) { setUrlMessage('No scheduled job to cancel.', 'warn'); return; }
+        el.urlCancelScheduleBtn.disabled = true; el.urlCancelScheduleBtn.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/videos/url/stream/schedule/cancel`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jobId: scheduledJobId })
+          });
+          stopUrlStatusPoll();
+          setUrlMessage('Schedule cancelled.', 'warn');
+          scheduledJobId = '';
+          updateUrlStatus('');
+        } catch (err) {
+          setUrlMessage(`Failed to cancel: ${err.message}`, 'error');
+        } finally {
+          el.urlCancelScheduleBtn.disabled = false; el.urlCancelScheduleBtn.classList.remove('loading');
+        }
+      });
+    }
+  }
+  function startUrlStatusPoll() {
+    stopUrlStatusPoll();
+    if (!externalStreamId && !scheduledJobId) return;
+    urlStatusTimer = setInterval(async () => {
+      try {
+        if (externalStreamId) {
+          const s = await fetchJSON(`${API_URL}/videos/url/stream/status/${externalStreamId}`);
+          if (!s || !s.active) {
+            updateUrlStatus('Inactive');
+            if (s && s.error) setUrlMessage(`Stream error: ${s.error}`, 'error');
+            return;
+          }
+          const prog = typeof s.progress === 'number' ? fmtDuration(s.progress) : '';
+          const when = s.startedAt ? `since ${fmtDate(s.startedAt)}` : '';
+          updateUrlStatus(`Active ${when}${prog ? ' • ' + prog : ''}`);
+          return;
+        }
+        if (scheduledJobId) {
+          const j = await fetchJSON(`${API_URL}/videos/url/stream/schedule/status/${scheduledJobId}`);
+          if (!j) { updateUrlStatus('Status unavailable'); return; }
+          const st = j.status || '';
+          if (st === 'scheduled') {
+            const when = j.scheduleTime ? fmtDate(j.scheduleTime) : '';
+            updateUrlStatus(`Scheduled for ${when}`);
+          } else if (st === 'streaming') {
+            const prog = typeof j.progress === 'number' ? fmtDuration(j.progress) : '';
+            const when = j.startedAt ? `since ${fmtDate(j.startedAt)}` : '';
+            updateUrlStatus(`Active ${when}${prog ? ' • ' + prog : ''}`);
+          } else if (st === 'completed') {
+            updateUrlStatus('Completed');
+            scheduledJobId = '';
+            stopUrlStatusPoll();
+          } else if (st === 'cancelled') {
+            updateUrlStatus('Cancelled');
+            scheduledJobId = '';
+            stopUrlStatusPoll();
+          } else if (st === 'failed') {
+            updateUrlStatus('Failed');
+            if (j.error) setUrlMessage(`Stream error: ${j.error}`, 'error');
+            scheduledJobId = '';
+            stopUrlStatusPoll();
+          } else {
+            updateUrlStatus('Status unavailable');
+          }
+        }
+      } catch (_) {
+        updateUrlStatus('Status unavailable');
+      }
+    }, 3000);
+  }
+  function stopUrlStatusPoll() {
+    if (urlStatusTimer) { clearInterval(urlStatusTimer); urlStatusTimer = null; }
+  }
+
   /** Auto-refresh every 10s */
   function startAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
       if (isRefreshing) return;
       isRefreshing = true;
-      try { await Promise.all([loadVideos(), loadPlaylists()]); } finally { isRefreshing = false; }
+      try { await Promise.all([loadVideos(), loadPlaylists(), loadActiveStreams(), loadHealth()]); } finally { isRefreshing = false; }
     }, REFRESH_INTERVAL_MS);
   }
 
@@ -884,10 +1194,12 @@
       setupUpload();
       setupLibraryUpload();
       setupPlaylistForm();
+      setupUrlStreamForm();
+      setupActiveActions();
       setupFilters();
       setupCardActions();
       // Load health and videos in parallel to avoid long perceived buffering
-      await Promise.all([loadHealth(), loadVideos(), loadPlaylists()]);
+      await Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]);
       startAutoRefresh();
     } catch (err) {
       // Ensure spinner never gets stuck if an unexpected error occurs

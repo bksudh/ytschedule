@@ -3,6 +3,45 @@ const fs = require('fs');
 const path = require('path');
 const Video = require('../models/Video');
 const { insertStreamEvent, updateVideoProgress, syncVideo } = require('./supabase');
+const ytdl = require('ytdl-core');
+let ytdlp = null;
+try {
+  // Optional: yt-dlp fallback for robust URL resolution
+  ytdlp = require('yt-dlp-exec');
+} catch (_) {}
+if (!ytdlp) {
+  try { ytdlp = require('youtube-dl-exec'); } catch (_) {}
+}
+const { spawn } = require('child_process');
+
+async function resolveViaYtdlpBin(url) {
+  return new Promise((resolve) => {
+    try {
+      const args = ['-g', '-f', 'best[height<=1080]/best', url];
+      let bin = 'yt-dlp';
+      // Allow custom env override or local binary
+      const envBin = process.env.YTDLP_BIN || process.env.YT_DLP_BIN;
+      const localBin = path.resolve(__dirname, '../bin/yt-dlp.exe');
+      if (envBin && envBin.trim()) bin = envBin.trim();
+      else if (fs.existsSync(localBin)) bin = localBin;
+
+      const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      p.stdout.on('data', (d) => { out += String(d || ''); });
+      p.on('close', (code) => {
+        if (code === 0) {
+          const u = out.trim().split(/\r?\n/)[0] || '';
+          resolve(u || null);
+        } else {
+          resolve(null);
+        }
+      });
+      p.on('error', () => resolve(null));
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
 
 function parseTimemark(t) {
   try {
@@ -33,15 +72,178 @@ function buildOutputUrl(rtmpUrl, streamKey) {
 class Streamer {
   constructor() {
     this.activeStreams = new Map(); // videoId -> { command, startedAt, progress, lastUpdateMs, stopped, outputUrl }
+    this.lastStreamErrors = new Map(); // id -> last error message
   }
 
   getAllActiveStreams() {
     return Array.from(this.activeStreams.keys());
   }
 
+  /**
+   * Start an external stream directly from a source URL (YouTube supported).
+   * Returns a streamId that can be used to query or stop the stream.
+   */
+  async startUrlStream(sourceUrl, opts = {}) {
+    const url = String(sourceUrl || '').trim();
+    if (!url) throw new Error('sourceUrl is required');
+
+    const useRtmpUrl = opts.rtmpUrl;
+    const useStreamKey = opts.streamKey;
+    const outputUrl = buildOutputUrl(useRtmpUrl, useStreamKey);
+
+    // Basic YouTube URL detection; fall back to letting ffmpeg fetch http(s) URLs directly
+    const isYouTube = /youtube\.com\/watch\?v=|youtu\.be\//i.test(url);
+
+    let inputStreamOrUrl = url;
+    let useInputFormat = undefined;
+    if (isYouTube) {
+      // Try to resolve a direct media URL via yt-dlp first (most robust)
+      let directUrl = null;
+      if (ytdlp) {
+        try {
+          const out = await ytdlp(url, { getUrl: true, format: 'best[height<=1080]/best', noWarnings: true, noCheckCertificates: true, quiet: true });
+          directUrl = Array.isArray(out) ? (out[0] || '').trim() : String(out || '').trim();
+        } catch (err) {
+          console.warn(`[Streamer] yt-dlp resolve failed: ${err.message}`);
+        }
+      }
+      if (!directUrl) {
+        try {
+          directUrl = await resolveViaYtdlpBin(url);
+        } catch (_) {}
+      }
+
+      if (directUrl) {
+        inputStreamOrUrl = directUrl;
+        useInputFormat = undefined; // ffmpeg will auto-detect container
+      } else {
+        // Fallback to ytdl-core stream
+        try {
+          inputStreamOrUrl = ytdl(url, { quality: 'highest', filter: 'audioandvideo', highWaterMark: 1 << 25 });
+          useInputFormat = undefined; // do not force container
+        } catch (err) {
+          throw new Error(`Failed to initialize YouTube download: ${err.message}`);
+        }
+      }
+    }
+
+    const inputOpts = ['-re', '-thread_queue_size', '4096', '-user_agent', 'Mozilla/5.0'];
+    const outputOpts = [
+      '-preset veryfast',
+      '-maxrate 3000k',
+      '-bufsize 6000k',
+      '-g 60',
+      '-pix_fmt yuv420p',
+      '-vf scale=1920:-2:force_original_aspect_ratio=decrease',
+    ];
+
+    // Generate an external stream id
+    const streamId = `url:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const command = (typeof inputStreamOrUrl === 'string' ? ffmpeg(inputStreamOrUrl) : ffmpeg(inputStreamOrUrl))
+      .inputOptions(inputOpts)
+      .outputOptions(outputOpts)
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .audioBitrate('128k')
+      .format('flv')
+      .output(outputUrl);
+
+    // Avoid forcing inputFormat; ffmpeg will detect stream container
+
+    return new Promise((resolve, reject) => {
+      command
+        .on('start', async (cmdLine) => {
+          try {
+            console.log(`[Streamer] FFmpeg started for external ${streamId}: ${cmdLine}`);
+            this.lastStreamErrors.delete(streamId);
+            const entry = {
+              command,
+              startedAt: new Date(),
+              progress: 0,
+              lastUpdateMs: Date.now(),
+              stopped: false,
+              outputUrl,
+              external: true,
+              sourceUrl: url,
+            };
+            this.activeStreams.set(streamId, entry);
+            resolve({ streamId, command });
+          } catch (err) {
+            reject(err);
+          }
+        })
+        .on('progress', async (progress) => {
+          try {
+            const entry = this.activeStreams.get(streamId);
+            if (!entry) return;
+            const now = Date.now();
+            const seconds = parseTimemark(progress.timemark);
+            // Just store seconds observed as numeric progress for external streams
+            if (seconds !== entry.progress || now - (entry.lastUpdateMs || 0) > 1000) {
+              entry.progress = seconds;
+              entry.lastUpdateMs = now;
+            }
+          } catch (err) {
+            console.warn(`[Streamer] External progress update failed for ${streamId}: ${err.message}`);
+          }
+        })
+        .on('stderr', (line) => {
+          if (line && /Error|Invalid|failed/i.test(line)) {
+            console.warn(`[Streamer][${streamId}] ffmpeg: ${line.trim()}`);
+          }
+        })
+        .on('end', async () => {
+          try {
+            this.activeStreams.delete(streamId);
+            console.log(`[Streamer] External stream finished (${streamId}).`);
+          } catch (err) {
+            console.error(`[Streamer] External end handler error for ${streamId}: ${err.message}`);
+          }
+        })
+        .on('error', async (err, _stdout, _stderr) => {
+          try {
+            console.error(`[Streamer] FFmpeg error for external ${streamId}: ${err.message}`);
+            this.lastStreamErrors.set(streamId, err && err.message ? err.message : 'Unknown streaming error');
+            this.activeStreams.delete(streamId);
+          } catch (_) {}
+        });
+
+      // Start
+      try {
+        command.run();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  async stopExternalStream(streamId) {
+    const id = String(streamId);
+    const entry = this.activeStreams.get(id);
+    if (!entry) return false;
+    try {
+      entry.stopped = true;
+      const cmd = entry.command;
+      if (cmd && cmd.ffmpegProc && cmd.ffmpegProc.stdin) {
+        try { cmd.ffmpegProc.stdin.write('q'); } catch (_) {}
+      }
+      try { cmd.kill('SIGINT'); } catch (_) {}
+      this.activeStreams.delete(id);
+      console.log(`[Streamer] Stopped external stream ${id}.`);
+      return true;
+    } catch (err) {
+      console.error(`[Streamer] Failed to stop external ${id}: ${err.message}`);
+      return false;
+    }
+  }
+
   getStreamStatus(videoId) {
     const entry = this.activeStreams.get(String(videoId));
-    if (!entry) return { active: false };
+    if (!entry) {
+      const err = this.lastStreamErrors.get(String(videoId));
+      return { active: false, error: err };
+    }
     return {
       active: true,
       videoId: String(videoId),

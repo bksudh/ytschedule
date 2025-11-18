@@ -3,7 +3,12 @@ const fs = require('fs');
 const path = require('path');
 
 const publicDir = __dirname;
-const port = process.env.PORT || 5173;
+// Support port from CLI arg `--port <num>` or env `PORT`
+const argPortIdx = process.argv.indexOf('--port');
+const argPort = (argPortIdx !== -1 && process.argv[argPortIdx + 1]) ? Number(process.argv[argPortIdx + 1]) : null;
+const port = (Number.isFinite(argPort) && argPort > 0 ? argPort : (Number(process.env.PORT) || 5173));
+console.log('[DevServer] argv:', process.argv);
+console.log('[DevServer] using port:', port);
 
 const mimeTypes = {
   '.html': 'text/html',

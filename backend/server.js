@@ -104,6 +104,7 @@ app.use('/api/playlists', playlistsRouter);
 const streamer = require('./utils/streamer');
 const Video = require('./models/Video');
 const Playlist = require('./models/Playlist');
+const ExternalJob = require('./models/ExternalJob');
 const supabase = require('./utils/supabase');
 
 const healthHandler = (req, res) => {
@@ -113,6 +114,53 @@ const healthHandler = (req, res) => {
 
 app.get('/api/health', healthHandler);
 app.get('/health', healthHandler);
+
+// Active streams listing (videos + external URL jobs)
+app.get('/api/streams/active', async (req, res) => {
+  try {
+    const ids = streamer.getAllActiveStreams();
+    const out = [];
+    for (const id of ids) {
+      const sid = String(id);
+      const st = (typeof streamer.getStreamStatus === 'function') ? streamer.getStreamStatus(sid) : null;
+      const base = { id: sid, status: 'streaming', startedAt: st && st.startedAt ? st.startedAt : undefined };
+      if (sid.startsWith('url:')) {
+        // External stream (YouTube URL)
+        const job = await ExternalJob.findOne({ streamId: sid }).lean().exec();
+        out.push({
+          ...base,
+          type: 'external',
+          title: (job && job.title) || 'External URL',
+          sourceUrl: (st && st.sourceUrl) || (job && job.sourceUrl) || undefined,
+          outputUrl: (st && st.outputUrl) || (job && job.lastOutputUrl) || undefined,
+          progress: (st && typeof st.progress === 'number') ? st.progress : undefined,
+          stopTime: (job && job.stopTime) || undefined,
+        });
+      } else {
+        // Video stream
+        const v = await Video.findById(sid).lean().exec();
+        let pl = null;
+        if (v && v.playlistId) {
+          try { pl = await Playlist.findById(v.playlistId).lean().exec(); } catch (_) {}
+        }
+        const output = (st && st.outputUrl) || (v && v.lastOutputUrl) || ((v && v.usedRtmpUrl && v.usedStreamKey) ? `${v.usedRtmpUrl.replace(/\/$/, '')}/${v.usedStreamKey}` : undefined);
+        out.push({
+          ...base,
+          type: 'video',
+          title: (v && v.title) || sid,
+          outputUrl: output,
+          progress: (st && typeof st.progress === 'number') ? st.progress : (v && typeof v.progress === 'number' ? v.progress : undefined),
+          stopTime: (v && v.stopTime) || undefined,
+          playlistId: (v && v.playlistId) || undefined,
+          playlistName: (pl && pl.name) || undefined,
+        });
+      }
+    }
+    res.status(200).json({ active: out, count: out.length });
+  } catch (err) {
+    res.status(500).json({ error: err && err.message ? err.message : 'Failed to list active streams' });
+  }
+});
 
 // Supabase health
 app.get('/api/supabase/health', async (req, res) => {
@@ -139,6 +187,19 @@ function startCron() {
           console.log(`[Cron] Auto-stopped ${v.title} at planned stopTime (${ok ? 'ok' : 'no active process'})`);
         } catch (err) {
           console.error(`[Cron] Failed to auto-stop ${v._id}: ${err.message}`);
+        }
+      }
+
+      // 1b) Stop any running external URL jobs whose stopTime has arrived
+      const extToStop = await ExternalJob.find({ status: 'streaming', stopTime: { $exists: true, $lte: now } }).lean().exec();
+      for (const job of extToStop) {
+        try {
+          if (job.streamId) {
+            const ok = await streamer.stopExternalStream(job.streamId);
+            console.log(`[Cron] Auto-stopped external job ${job._id} (${ok ? 'ok' : 'no active process'})`);
+          }
+        } catch (err) {
+          console.error(`[Cron] Failed to auto-stop external ${job._id}: ${err.message}`);
         }
       }
 
@@ -210,18 +271,65 @@ function startCron() {
 
       // 2c) Fallback: start next due scheduled video not part of a playlist
       const next = await Video.findOne({ status: 'scheduled', scheduleTime: { $lte: now }, $or: [ { playlistId: { $exists: false } }, { playlistId: null } ] }).sort({ scheduleTime: 1 });
-      if (!next) return;
-      try {
-        await streamer.startStream(next._id.toString());
-        console.log(`[Cron] Started stream for: ${next.title}`);
-      } catch (err) {
-        console.error(`[Cron] Failed to start stream for ${next._id}: ${err.message}`);
+      if (next) {
         try {
-          next.status = 'failed';
-          next.errorMessage = err.message;
-          next.streamEndedAt = new Date();
-          await next.save();
-        } catch (_) {}
+          await streamer.startStream(next._id.toString());
+          console.log(`[Cron] Started stream for: ${next.title}`);
+        } catch (err) {
+          console.error(`[Cron] Failed to start stream for ${next._id}: ${err.message}`);
+          try {
+            next.status = 'failed';
+            next.errorMessage = err.message;
+            next.streamEndedAt = new Date();
+            await next.save();
+          } catch (_) {}
+        }
+      } else {
+        // 2d) If no video is due, start next scheduled external URL job
+        const nextJob = await ExternalJob.findOne({ status: 'scheduled', scheduleTime: { $lte: now } }).sort({ scheduleTime: 1 }).exec();
+        if (!nextJob) return;
+        try {
+          const { streamId, command } = await streamer.startUrlStream(nextJob.sourceUrl, { rtmpUrl: nextJob.rtmpUrl, streamKey: nextJob.streamKey });
+          nextJob.status = 'streaming';
+          nextJob.streamId = streamId;
+          nextJob.startedAt = new Date();
+          nextJob.lastOutputUrl = `${nextJob.rtmpUrl.endsWith('/') ? nextJob.rtmpUrl : nextJob.rtmpUrl + '/'}${nextJob.streamKey}`;
+          await nextJob.save();
+
+          command.on('end', async () => {
+            try {
+              const j = await ExternalJob.findById(nextJob._id);
+              if (!j) return;
+              j.status = 'completed';
+              j.progress = 100;
+              j.endedAt = new Date();
+              await j.save();
+            } catch (e) {
+              console.error(`[Cron] Failed to mark external job complete: ${e.message}`);
+            }
+          });
+          command.on('error', async (err) => {
+            try {
+              const j = await ExternalJob.findById(nextJob._id);
+              if (!j) return;
+              j.status = 'failed';
+              j.errorMessage = err.message || 'Streaming failed';
+              j.endedAt = new Date();
+              await j.save();
+            } catch (e) {
+              console.error(`[Cron] Failed to mark external job error: ${e.message}`);
+            }
+          });
+          console.log(`[Cron] Started external URL job ${nextJob._id}`);
+        } catch (err) {
+          console.error(`[Cron] Failed to start external job ${nextJob._id}: ${err.message}`);
+          try {
+            nextJob.status = 'failed';
+            nextJob.errorMessage = err.message;
+            nextJob.endedAt = new Date();
+            await nextJob.save();
+          } catch (_) {}
+        }
       }
     } catch (err) {
       console.error(`[Cron] Job error: ${err.message}`);

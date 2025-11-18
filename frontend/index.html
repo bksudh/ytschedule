@@ -26,12 +26,66 @@
 
     <!-- Main Navigation -->
     <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
+      <button class="nav-link" data-view="active"><i class="fa-solid fa-signal"></i> Active Streams <span id="nav-active-count" class="badge-pill">0</span></button>
       <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
       <button class="nav-link active" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
       <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
     </nav>
 
     <main class="container">
+      <!-- Active Streams Section -->
+      <section id="section-active-streams" class="card" aria-labelledby="active-streams-title">
+        <div class="section-header">
+          <h2 id="active-streams-title"><i class="fa-solid fa-signal"></i> Active Streams</h2>
+        </div>
+        <div id="active-streams-list" class="grid" aria-live="polite"></div>
+        <div id="active-streams-empty" class="empty" hidden>
+          <i class="fa-regular fa-face-smile"></i>
+          <p>No active streams right now.</p>
+        </div>
+      </section>
+      <!-- Stream from URL Section -->
+      <section id="section-url-stream" class="card" aria-labelledby="url-stream-title">
+        <div class="section-header">
+          <h2 id="url-stream-title"><i class="fa-brands fa-youtube"></i> Stream from URL</h2>
+        </div>
+        <form id="url-stream-form" class="form-grid">
+          <div class="form-row">
+            <label for="url-source">YouTube Video URL</label>
+            <input id="url-source" type="url" name="sourceUrl" placeholder="https://www.youtube.com/watch?v=..." required />
+            <small>Public videos recommended. Age-restricted content may fail.</small>
+          </div>
+          <div class="form-row">
+            <label for="url-rtmpUrl">RTMP URL</label>
+            <input id="url-rtmpUrl" type="text" name="rtmpUrl" value="rtmp://a.rtmp.youtube.com/live2" required />
+          </div>
+          <div class="form-row">
+            <label for="url-streamKey">Stream Key</label>
+            <input id="url-streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+            <small>
+              Find it in YouTube Live Control Room. <a href="#" id="yt-help-link">Need help?</a>
+            </small>
+          </div>
+          <div class="form-row">
+            <label for="url-scheduleStart">Schedule Start (UTC)</label>
+            <input id="url-scheduleStart" type="datetime-local" name="scheduleTime" />
+            <small>Leave empty to start immediately.</small>
+          </div>
+          <div class="form-row">
+            <label for="url-scheduleStop">Stop Time (optional, UTC)</label>
+            <input id="url-scheduleStop" type="datetime-local" name="stopTime" />
+            <small>Auto-stop external stream at this time.</small>
+          </div>
+          <div class="form-actions">
+            <button type="submit" id="url-start-btn" class="btn primary"><i class="fa-solid fa-play"></i> Start from URL</button>
+            <button type="button" id="url-stop-btn" class="btn" hidden><i class="fa-solid fa-stop"></i> Stop</button>
+            <button type="button" id="url-schedule-btn" class="btn outline"><i class="fa-regular fa-calendar"></i> Schedule from URL</button>
+            <button type="button" id="url-cancel-schedule-btn" class="btn outline"><i class="fa-regular fa-calendar-xmark"></i> Cancel Schedule</button>
+          </div>
+          <div id="url-message" class="message" role="alert" aria-live="polite"></div>
+          <div id="url-status" class="status" aria-live="polite"></div>
+        </form>
+      </section>
       <!-- Create Playlist Section -->
       <section id="section-playlist-form" class="card" aria-labelledby="playlist-title" hidden>
         <div class="section-header">
