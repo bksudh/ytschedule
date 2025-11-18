@@ -9,9 +9,12 @@
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname) || window.location.protocol === 'file:';
   const ENV = explicitEnv || (isLocal ? 'development' : 'production');
 
-  // Prefer IPv4 loopback to avoid occasional localhost/IPv6 refusal issues
-  const API_HOST = (ENV === 'development' && window.location.hostname === 'localhost') ? '127.0.0.1' : window.location.hostname;
-  const API_URL = ENV === 'development' ? `http://${API_HOST}:3000/api` : `${window.location.origin}/api`;
+  // API base: prefer same-origin '/api' when running behind a proxy dev server.
+  // When using a static server (e.g., `npx serve` on port 5173), fall back to backend on 3000.
+  const port = window.location.port;
+  const API_URL = (ENV === 'development' && port === '5173')
+    ? 'http://localhost:3000/api'
+    : `${window.location.origin}/api`;
 
   /** @type {Intl.DateTimeFormatOptions} */
   const DATE_FORMAT = {

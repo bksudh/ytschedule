@@ -19,6 +19,41 @@ const mimeTypes = {
 
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
+  // Simple proxy for API calls to backend on localhost:3000
+  if (urlPath.startsWith('/api/')) {
+    const targetHost = 'localhost';
+    const targetPort = 3000;
+    const options = {
+      hostname: targetHost,
+      port: targetPort,
+      // Preserve query string for API requests
+      path: req.url,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: `${targetHost}:${targetPort}`,
+      },
+    };
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.statusCode = proxyRes.statusCode || 500;
+      Object.entries(proxyRes.headers || {}).forEach(([k, v]) => {
+        if (v !== undefined) res.setHeader(k, v);
+      });
+      proxyRes.pipe(res);
+    });
+    proxyReq.on('error', (err) => {
+      res.statusCode = 502;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Proxy error', message: err.message }));
+    });
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      req.pipe(proxyReq);
+    } else {
+      proxyReq.end();
+    }
+    return;
+  }
+
   let filePath = path.join(publicDir, urlPath);
 
   if (urlPath === '/' || urlPath === '') {

@@ -7,14 +7,18 @@ const VideoSchema = new mongoose.Schema(
     filepath: { type: String, required: true, trim: true },
     filesize: { type: Number, min: 0 },
     duration: { type: Number, min: 0 }, // seconds
-    scheduleTime: { type: Date, required: true, index: true },
+    // For library items, scheduleTime can be omitted
+    scheduleTime: { type: Date, required: function () { return this.status !== 'library'; }, index: true },
     // Optional planned stop time for auto-stopping the stream
     stopTime: { type: Date, required: false, index: true },
-    rtmpUrl: { type: String, required: true, trim: true },
-    streamKey: { type: String, required: true, trim: true }, // store encrypted value
+    // Optional reference to a playlist this video belongs to
+    playlistId: { type: mongoose.Schema.Types.ObjectId, ref: 'Playlist' },
+    // RTMP details: required when streaming unless playlist overrides are provided
+    rtmpUrl: { type: String, required: function () { return this.status !== 'library' && !this.usedRtmpUrl; }, trim: true },
+    streamKey: { type: String, required: function () { return this.status !== 'library' && !this.usedStreamKey; }, trim: true },
     status: {
       type: String,
-      enum: ['scheduled', 'streaming', 'completed', 'failed', 'cancelled'],
+      enum: ['library', 'scheduled', 'streaming', 'completed', 'failed', 'cancelled'],
       default: 'scheduled',
       index: true,
     },
@@ -23,7 +27,13 @@ const VideoSchema = new mongoose.Schema(
     uploadedAt: { type: Date, default: Date.now },
     streamStartedAt: { type: Date },
     streamEndedAt: { type: Date },
+    // Persist actual RTMP details used during the last stream (could come from playlist overrides)
+    usedRtmpUrl: { type: String, trim: true },
+    usedStreamKey: { type: String, trim: true },
+    lastOutputUrl: { type: String, trim: true },
     createdBy: { type: String },
+    // Loop this video continuously when streaming (until manual stop or stopTime)
+    loop: { type: Boolean, default: false },
   },
   {
     timestamps: true,
@@ -44,6 +54,7 @@ VideoSchema.virtual('scheduledAt')
 // Indexes for common queries
 VideoSchema.index({ status: 1, scheduleTime: 1 });
 VideoSchema.index({ status: 1, stopTime: 1 });
+VideoSchema.index({ playlistId: 1, status: 1 });
 VideoSchema.index({ createdBy: 1 });
 VideoSchema.index({ uploadedAt: 1 });
 
@@ -59,8 +70,8 @@ VideoSchema.methods.canBeDeleted = function () {
 
 // Validation and status-driven timestamps
 VideoSchema.pre('save', function (next) {
-  // Ensure scheduleTime exists (schema requires it, but double-check for clarity)
-  if (!this.scheduleTime) {
+  // Ensure scheduleTime exists for non-library items
+  if (this.status !== 'library' && !this.scheduleTime) {
     return next(new Error('scheduleTime is required'));
   }
 
@@ -71,9 +82,13 @@ VideoSchema.pre('save', function (next) {
     }
   }
 
-  // Stream key should not be obviously plain text (basic sanity checks)
-  if (typeof this.streamKey !== 'string' || this.streamKey.trim().length < 16) {
-    return next(new Error('streamKey must be provided and appear encrypted (min length 16)'));
+  // Stream key checks: either streamKey (>=16) or usedStreamKey (>=8) must be present when not library
+  if (this.status !== 'library') {
+    const hasPrimary = typeof this.streamKey === 'string' && this.streamKey.trim().length >= 16;
+    const hasOverride = typeof this.usedStreamKey === 'string' && this.usedStreamKey.trim().length >= 8;
+    if (!hasPrimary && !hasOverride) {
+      return next(new Error('Valid stream key required (video or playlist override)'));
+    }
   }
 
   // Status-driven timestamps

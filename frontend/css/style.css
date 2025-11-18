@@ -1,19 +1,20 @@
 /* Theme Variables */
+/* Default: Light theme */
 :root {
   /* Brand Colors */
-  --color-primary: #FF0000; /* YouTube red */
-  --color-secondary: #282828; /* dark gray */
-  --color-bg: #F9F9F9; /* app background */
-  --color-surface: #FFFFFF; /* cards */
-  --color-text: #111111; /* high contrast text */
-  --color-muted: #757575;
+  --color-primary: #e53935; /* refined YouTube red */
+  --color-secondary: #2f2f2f; /* dark gray */
+  --color-bg: #f7f7fb; /* soft app background */
+  --color-surface: #ffffff; /* cards */
+  --color-text: #101114; /* high contrast text */
+  --color-muted: #70757a; /* muted */
 
   /* Status */
-  --color-success: #4CAF50;
-  --color-warning: #FF9800;
-  --color-danger: #F44336;
-  --color-info: #2196F3; /* scheduled blue */
-  --color-completed: #9E9E9E;
+  --color-success: #2e7d32;
+  --color-warning: #f57c00;
+  --color-danger: #d32f2f;
+  --color-info: #1976d2; /* scheduled blue */
+  --color-completed: #9aa0a6;
 
   /* Shadows & Radii */
   --radius: 12px;
@@ -24,6 +25,26 @@
   /* Transitions */
   --ease: cubic-bezier(.2,.8,.2,1);
   --transition: 0.3s var(--ease);
+}
+
+/* Dark theme */
+:root[data-theme="dark"] {
+  --color-primary: #ff4d4d;
+  --color-secondary: #cccccc;
+  --color-bg: #121314;
+  --color-surface: #1e2024;
+  --color-text: #e8eaed;
+  --color-muted: #a1a6ab;
+
+  --color-success: #66bb6a;
+  --color-warning: #ffb74d;
+  --color-danger: #ef5350;
+  --color-info: #64b5f6;
+  --color-completed: #b0b4ba;
+
+  --shadow-sm: 0 2px 6px rgba(0,0,0,0.35);
+  --shadow-md: 0 6px 18px rgba(0,0,0,0.45);
+  --shadow-lg: 0 12px 28px rgba(0,0,0,0.55);
 }
 
 /* Base & Accessibility */
@@ -62,6 +83,25 @@ img { max-width: 100%; display: block; }
 .app-header .branding i { color: var(--color-primary); font-size: 1.4rem; }
 .app-header .status-bar { display: flex; align-items: center; gap: 16px; padding: 0 24px 12px; color: var(--color-muted); font-weight: 500; }
 .status-item i { margin-right: 6px; }
+
+/* Main Navigation */
+.main-nav {
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 24px; background: var(--color-surface);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  position: sticky; top: 64px; z-index: 40;
+}
+.main-nav .nav-link {
+  appearance: none; border: none; cursor: pointer;
+  background: #f0f1f3; color: var(--color-text); font-weight: 700;
+  border-radius: 999px; padding: 8px 14px; transition: all var(--transition);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.main-nav .nav-link:hover { filter: brightness(1.03); }
+.main-nav .nav-link.active { background: var(--color-primary); color: #fff; }
+
+/* Small button variant */
+.btn.small { padding: 6px 10px; font-size: 0.85rem; }
 
 /* Cards */
 .card {
@@ -135,6 +175,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .badge--streaming { background: rgba(76,175,80,0.12); color: var(--color-success); animation: pulse 1.6s infinite; }
 .badge--completed { background: rgba(0,0,0,0.06); color: var(--color-completed); }
 .badge--failed { background: rgba(244,67,54,0.12); color: var(--color-danger); }
+.badge--library { background: rgba(117,117,117,0.12); color: var(--color-muted); }
 
 /* Empty State */
 .empty { text-align: center; color: var(--color-muted); padding: 28px; }

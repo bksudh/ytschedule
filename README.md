@@ -149,6 +149,27 @@ curl -X POST http://localhost:3000/api/videos \
   - `MONGODB_URI` — MongoDB connection URI
   - `VIDEOS_PATH` — where uploads are stored (e.g., `/app/videos`)
   - `MAX_UPLOAD_SIZE` — in bytes (5GB = `5368709120`)
+
+### Supabase (optional)
+
+If you want to connect this app with your Supabase project for auth or future data integrations:
+
+- Add these to `.env` (see `.env.example`):
+  - `SUPABASE_URL` — `https://<project-ref>.supabase.co` (e.g. `https://debjgackpstxxdeeohny.supabase.co`)
+  - `SUPABASE_ANON_KEY` — from Project Settings → API → `anon` public key
+  - `SUPABASE_SERVICE_ROLE_KEY` — from Project Settings → API → `service_role` key (keep secret; server-side only)
+
+- Verify connectivity: `GET /api/supabase/health` returns `{ url, anon, admin, connected }`.
+  - `connected: true` requires a valid `service_role` key.
+
+Note: This repo currently uses MongoDB for video scheduling/storage. Supabase integration is scaffolded for auth/expansion and does not replace MongoDB by default.
+
+Supabase tables:
+- Open your Supabase Project → SQL → New query and paste the contents of `scripts/supabase.sql` to create `videos`, `playlists`, and `stream_events` tables with indexes.
+- After creating tables, verify with:
+  - `select * from public.videos limit 1;`
+  - `select * from public.playlists limit 1;`
+  - `select * from public.stream_events limit 1;`
   - `ALLOWED_ORIGINS` / `CORS_ORIGINS` — comma‑separated allowed frontend origins
   - Traefik: `DOMAIN`, `ACME_EMAIL`
 
@@ -348,5 +369,6 @@ MIT — You are free to use, copy, modify, merge, publish, distribute, sublicens
 - YouTube Live streaming docs
 - FFmpeg project
 - Express & Mongoose communities
-- Traefik maintainers#   y t s c h  
+- Traefik maintainers#   y t s c h 
+ 
  

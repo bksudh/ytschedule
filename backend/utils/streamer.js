@@ -2,6 +2,7 @@ const ffmpeg = require('../utils/ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const Video = require('../models/Video');
+const { insertStreamEvent, updateVideoProgress, syncVideo } = require('./supabase');
 
 function parseTimemark(t) {
   try {
@@ -51,7 +52,7 @@ class Streamer {
     };
   }
 
-  async startStream(videoId) {
+  async startStream(videoId, opts = {}) {
     const id = String(videoId);
     if (this.activeStreams.has(id)) {
       throw new Error(`Stream already active for video ${id}`);
@@ -64,10 +65,24 @@ class Streamer {
       throw new Error('Video file not found on disk');
     }
 
-    const outputUrl = buildOutputUrl(video.rtmpUrl, video.streamKey);
+    const useRtmpUrl = opts.rtmpUrl || video.rtmpUrl;
+    const useStreamKey = opts.streamKey || video.streamKey;
+    const outputUrl = buildOutputUrl(useRtmpUrl, useStreamKey);
+
+    const shouldLoop = !!(video.loop && !opts.playlistId && !opts.disableLoop);
+    const inputOpts = ['-re'];
+    if (shouldLoop) {
+      // Loop input indefinitely; stream will only stop via stopTime or manual stop
+      inputOpts.push('-stream_loop', '-1');
+    }
+    // Ensure scheduleTime exists when transitioning to streaming from library (Instant Live)
+    if (!video.scheduleTime) {
+      try { await Video.findByIdAndUpdate(id, { scheduleTime: new Date() }).exec(); } catch (_) {}
+      video.scheduleTime = new Date();
+    }
 
     const command = ffmpeg(path.resolve(video.filepath))
-      .inputOptions(['-re'])
+      .inputOptions(inputOpts)
       .videoCodec('libx264')
       .audioCodec('aac')
       .audioBitrate('128k')
@@ -91,7 +106,13 @@ class Streamer {
             video.status = 'streaming';
             video.streamStartedAt = new Date();
             video.progress = 0;
+            // Persist actual RTMP details used for this run
+            video.usedRtmpUrl = useRtmpUrl;
+            video.usedStreamKey = useStreamKey;
+            video.lastOutputUrl = outputUrl;
             await video.save();
+            try { await insertStreamEvent(id, 'start', { outputUrl }); } catch (_) {}
+            try { await syncVideo(video); } catch (_) {}
 
             const entry = {
               command,
@@ -123,6 +144,7 @@ class Streamer {
                 entry.progress = pct;
                 entry.lastUpdateMs = now;
                 await Video.findByIdAndUpdate(id, { progress: pct }).exec();
+                try { await updateVideoProgress(id, pct); } catch (_) {}
               }
             }
           } catch (err) {
@@ -153,7 +175,10 @@ class Streamer {
               video.progress = 100;
             }
             video.streamEndedAt = new Date();
+            // lastOutputUrl etc already set on start; keep as-is for audit
             await video.save();
+            try { await insertStreamEvent(id, 'end', { progress: video.progress, outputUrl: video.lastOutputUrl }); } catch (_) {}
+            try { await syncVideo(video); } catch (_) {}
             console.log(`[Streamer] Stream finished for video ${id} (${video.status}).`);
           } catch (err) {
             console.error(`[Streamer] End handler error for ${id}: ${err.message}`);
@@ -170,6 +195,8 @@ class Streamer {
               video.errorMessage = err.message || 'Streaming failed';
               video.streamEndedAt = new Date();
               await video.save();
+              try { await insertStreamEvent(id, 'error', { message: video.errorMessage }); } catch (_) {}
+              try { await syncVideo(video); } catch (_) {}
             } else {
               console.log(`[Streamer] Video ${id} no longer exists; skipping error-state save.`);
             }
@@ -209,6 +236,7 @@ class Streamer {
 
       // Persist cancelled state immediately
       await Video.findByIdAndUpdate(id, { status: 'cancelled', streamEndedAt: new Date() }).exec();
+      try { await insertStreamEvent(id, 'stop'); } catch (_) {}
       this.activeStreams.delete(id);
       console.log(`[Streamer] Stopped stream for video ${id}.`);
       return true;

@@ -7,6 +7,7 @@ const fs = require('fs');
 const ffmpeg = require('../utils/ffmpeg');
 const Video = require('../models/Video');
 const streamer = require('../utils/streamer');
+const { syncVideo } = require('../utils/supabase');
 const net = require('net');
 const tls = require('tls');
 
@@ -92,6 +93,7 @@ router.post(
     body('stopTime').optional().isISO8601(),
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
+    body('loop').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -129,8 +131,10 @@ router.post(
         stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
+        loop: !!req.body.loop,
         status: 'scheduled',
       });
+      try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
     } catch (err) {
       next(err);
@@ -149,6 +153,7 @@ router.post(
     body('stopTime').optional().isISO8601(),
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
+    body('loop').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -185,8 +190,10 @@ router.post(
         stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
+        loop: !!req.body.loop,
         status: 'scheduled',
       });
+      try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
     } catch (err) {
       next(err);
@@ -198,7 +205,7 @@ router.post(
 router.get(
   '/',
   [
-    query('status').optional().isIn(['scheduled', 'streaming', 'completed', 'failed', 'cancelled']),
+    query('status').optional().isIn(['library', 'scheduled', 'streaming', 'completed', 'failed', 'cancelled']),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
     query('skip').optional().isInt({ min: 0 }).toInt(),
   ],
@@ -223,6 +230,52 @@ router.get(
         .skip(skip)
         .limit(limit);
       res.json(videos);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Upload to library (unscheduled, store for later)
+router.post(
+  '/library',
+  upload.single('file'),
+  [
+    body('title').isString().trim().isLength({ min: 1 }),
+  ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      if (!req.file) return res.status(400).json({ error: 'File is required' });
+
+      const filepath = path.join(uploadDir, req.file.filename);
+      const filesize = req.file.size;
+
+      let duration = undefined;
+      try {
+        await new Promise((resolve) => {
+          ffmpeg.ffprobe(filepath, (err, data) => {
+            if (err) return resolve();
+            const streams = (data && data.streams) || [];
+            const vStream = streams.find((s) => s.codec_type === 'video');
+            const dur = (data.format && data.format.duration) || (vStream && vStream.duration);
+            duration = dur ? Math.round(Number(dur)) : undefined;
+            resolve();
+          });
+        });
+      } catch (_) {}
+
+      const video = await Video.create({
+        title: req.body.title,
+        filename: req.file.filename,
+        filepath,
+        filesize,
+        duration,
+        status: 'library',
+      });
+      try { await syncVideo(video); } catch (_) {}
+      res.status(201).json(video);
     } catch (err) {
       next(err);
     }
@@ -256,6 +309,8 @@ router.put(
     body('stopTime').optional().isISO8601(),
     body('rtmpUrl').optional().isString().trim().isLength({ min: 1 }),
     body('streamKey').optional().isString().trim().isLength({ min: 16 }),
+    body('status').optional().isIn(['library', 'scheduled', 'streaming', 'completed', 'failed', 'cancelled']),
+    body('loop').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -270,7 +325,10 @@ router.put(
       if (req.body.rtmpUrl) video.rtmpUrl = req.body.rtmpUrl;
       if (req.body.stopTime) video.stopTime = new Date(req.body.stopTime);
       if (req.body.streamKey) video.streamKey = req.body.streamKey;
+      if (req.body.status) video.status = req.body.status;
+      if (typeof req.body.loop === 'boolean') video.loop = req.body.loop;
       await video.save();
+      try { await syncVideo(video); } catch (_) {}
       res.json(video);
     } catch (err) {
       next(err);
@@ -301,7 +359,13 @@ router.post(
   '/:id/stream/start',
   rateLimit(5, 60_000),
   optionalAuth,
-  [param('id').isMongoId(), body('force').optional().isBoolean()],
+  [
+    param('id').isMongoId(),
+    body('force').optional().isBoolean(),
+    // Optional RTMP details for Instant Live (required when starting library items)
+    body('rtmpUrl').optional().isString().trim().isLength({ min: 1 }),
+    body('streamKey').optional().isString().trim().isLength({ min: 8 }),
+  ],
   async (req, res, next) => {
     try {
       const errResp = handleValidationErrors(req, res);
@@ -309,26 +373,52 @@ router.post(
 
       const video = await Video.findById(req.params.id);
       if (!video) return res.status(404).json({ error: 'Video not found' });
-      if (video.status !== 'scheduled') return res.status(400).json({ error: 'Video is not in scheduled state' });
-
       const force = Boolean(req.body.force);
       const now = new Date();
-      if (!force && video.scheduleTime && video.scheduleTime > now) {
-        return res.status(400).json({ error: 'Not scheduled yet. Use force to start early.' });
+
+      // Case A: Scheduled item (existing behavior)
+      if (video.status === 'scheduled') {
+        if (!force && video.scheduleTime && video.scheduleTime > now) {
+          return res.status(400).json({ error: 'Not scheduled yet. Use force to start early.' });
+        }
+        try {
+          await streamer.startStream(video._id.toString());
+          return res.json({ message: 'Stream started' });
+        } catch (err) {
+          const msg = err && err.message ? err.message : 'Failed to start stream';
+          if (/already active/i.test(msg)) return res.status(409).json({ error: msg });
+          if (/Video file not found/i.test(msg)) return res.status(404).json({ error: msg });
+          if (/Invalid RTMP URL|stream key/i.test(msg)) return res.status(400).json({ error: msg });
+          return res.status(500).json({ error: msg });
+        }
       }
 
-      // Attempt to start stream
-      try {
-        await streamer.startStream(video._id.toString());
-        return res.json({ message: 'Stream started' });
-      } catch (err) {
-        const msg = err && err.message ? err.message : 'Failed to start stream';
-        // Map common errors to status codes
-        if (/already active/i.test(msg)) return res.status(409).json({ error: msg });
-        if (/Video file not found/i.test(msg)) return res.status(404).json({ error: msg });
-        if (/Invalid RTMP URL|stream key/i.test(msg)) return res.status(400).json({ error: msg });
-        return res.status(500).json({ error: msg });
+      // Case B: Instant Live for Library items
+      if (video.status === 'library') {
+        const rtmpUrl = String(req.body.rtmpUrl || video.rtmpUrl || '').trim();
+        const streamKey = String(req.body.streamKey || video.streamKey || '').trim();
+        if (!rtmpUrl || !streamKey || streamKey.length < 8) {
+          return res.status(400).json({ error: 'RTMP URL and Stream Key are required for Instant Live' });
+        }
+        // Ensure a scheduleTime exists to satisfy model validation when status changes to streaming
+        if (!video.scheduleTime) {
+          try {
+            await Video.findByIdAndUpdate(video._id, { scheduleTime: now }).exec();
+          } catch (_) {}
+        }
+        try {
+          await streamer.startStream(video._id.toString(), { rtmpUrl, streamKey });
+          return res.json({ message: 'Instant Live started' });
+        } catch (err) {
+          const msg = err && err.message ? err.message : 'Failed to start Instant Live';
+          if (/already active/i.test(msg)) return res.status(409).json({ error: msg });
+          if (/Video file not found/i.test(msg)) return res.status(404).json({ error: msg });
+          if (/Invalid RTMP URL|stream key/i.test(msg)) return res.status(400).json({ error: msg });
+          return res.status(500).json({ error: msg });
+        }
       }
+
+      return res.status(400).json({ error: 'Video is not in a startable state' });
     } catch (err) {
       next(err);
     }

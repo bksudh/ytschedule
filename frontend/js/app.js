@@ -13,6 +13,7 @@
   const MAX_FILE_SIZE = typeof cfg.MAX_FILE_SIZE === 'number' ? cfg.MAX_FILE_SIZE : (5 * 1024 * 1024 * 1024);
   const ALLOWED_FORMATS = Array.isArray(cfg.ALLOWED_FORMATS) ? cfg.ALLOWED_FORMATS.map(String).map(s => s.toLowerCase()) : ['mp4','avi','mov','mkv','flv'];
   const STATUS = Object.freeze({
+    LIBRARY: 'library',
     SCHEDULED: 'scheduled',
     STREAMING: 'streaming',
     COMPLETED: 'completed',
@@ -22,6 +23,7 @@
 
   /** State */
   let videos = [];
+  let playlists = [];
   let prevStatusById = new Map();
   let currentFilter = '';
   let searchTerm = '';
@@ -33,6 +35,12 @@
   const el = {
     health: document.getElementById('health-status'),
     streamsCount: document.getElementById('streams-count'),
+    nav: document.getElementById('main-nav'),
+    sectionUpload: document.getElementById('section-upload'),
+    sectionLibraryUpload: document.getElementById('section-library-upload'),
+    sectionVideos: document.getElementById('section-videos'),
+    sectionPlaylistForm: document.getElementById('section-playlist-form'),
+    sectionPlaylists: document.getElementById('section-playlists'),
     grid: document.getElementById('videos-grid'),
     empty: document.getElementById('empty-state'),
     listLegacy: document.getElementById('videos-list'),
@@ -42,7 +50,17 @@
     message: document.getElementById('message'),
     progress: document.getElementById('upload-progress'),
     progressBar: document.getElementById('upload-progress-bar'),
+    libraryForm: document.getElementById('library-upload-form'),
+    libraryMessage: document.getElementById('library-message'),
+    libraryProgress: document.getElementById('library-upload-progress'),
+    libraryProgressBar: document.getElementById('library-upload-progress-bar'),
     spinner: document.getElementById('global-spinner'),
+    playlistForm: document.getElementById('playlist-form'),
+    playlistSelector: document.getElementById('playlist-video-selector'),
+    playlistMsg: document.getElementById('playlist-message'),
+    playlistsList: document.getElementById('playlists-list'),
+    playlistsEmpty: document.getElementById('playlists-empty'),
+    themeToggle: document.getElementById('theme-toggle'),
   };
 
   /** Utilities */
@@ -137,6 +155,28 @@
     el.spinner.setAttribute('aria-busy', busy ? 'true' : 'false');
   }
 
+  /** Theme handling */
+  function applyTheme(theme) {
+    const t = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem('theme', t); } catch (_) {}
+    if (el.themeToggle) {
+      const icon = t === 'dark' ? 'fa-regular fa-sun' : 'fa-regular fa-moon';
+      const label = t === 'dark' ? 'Light' : 'Dark';
+      el.themeToggle.innerHTML = `<i class="${icon}"></i> ${label}`;
+    }
+  }
+  function setupTheme() {
+    const saved = (() => { try { return localStorage.getItem('theme'); } catch (_) { return null; } })();
+    applyTheme(saved || 'light');
+    if (el.themeToggle) {
+      el.themeToggle.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme') || 'light';
+        applyTheme(current === 'light' ? 'dark' : 'light');
+      });
+    }
+  }
+
   /** Health */
   async function loadHealth() {
     try {
@@ -155,6 +195,7 @@
   /** Build status badge HTML */
   function renderBadge(status) {
     const map = {
+      [STATUS.LIBRARY]: { cls: 'badge badge--library', icon: 'fa-regular fa-folder', label: 'Library' },
       [STATUS.SCHEDULED]: { cls: 'badge badge--scheduled', icon: 'fa-regular fa-clock', label: 'Scheduled' },
       [STATUS.STREAMING]: { cls: 'badge badge--streaming', icon: 'fa-solid fa-signal', label: 'Streaming' },
       [STATUS.COMPLETED]: { cls: 'badge badge--completed', icon: 'fa-regular fa-circle-check', label: 'Completed' },
@@ -173,6 +214,7 @@
     const progress = typeof video.progress === 'number' ? video.progress : 0;
     const status = video.status;
     const canStart = status === STATUS.SCHEDULED;
+    const canInstant = status === STATUS.LIBRARY;
     const canStop = status === STATUS.STREAMING;
     const canDelete = [STATUS.COMPLETED, STATUS.FAILED, STATUS.CANCELLED].includes(status) || !canStop;
 
@@ -187,6 +229,7 @@
         </div>
         <div class="card-actions" style="display:flex;gap:8px;">
           ${canStart ? `<button class="btn success" data-action="start" data-id="${id}"><i class="fa-solid fa-play"></i> Start</button>` : ''}
+          ${canInstant ? `<button class="btn success" data-action="instant" data-id="${id}"><i class="fa-solid fa-bolt"></i> Instant Live</button>` : ''}
           ${canStop ? `<button class="btn warning" data-action="stop" data-id="${id}"><i class="fa-solid fa-stop"></i> Stop</button>` : ''}
           <button class="btn" data-action="edit" data-id="${id}"><i class="fa-regular fa-pen-to-square"></i> Edit</button>
           ${canDelete ? `<button class="btn danger" data-action="delete" data-id="${id}"><i class="fa-regular fa-trash-can"></i> Delete</button>` : ''}
@@ -269,12 +312,147 @@
       });
       videos = filtered;
       renderVideos(videos);
+      renderPlaylistSelector();
       el.grid.setAttribute('aria-busy', 'false');
     } catch (err) {
       showToast(`Unable to load videos: ${err.message}`, 'error');
       el.empty.hidden = false;
       el.empty.querySelector('p')?.replaceChildren(document.createTextNode('Unable to load videos (database may be disconnected).'));
     }
+  }
+
+  /** Render playlist video selector using current videos */
+  function renderPlaylistSelector() {
+    if (!el.playlistSelector) return;
+    el.playlistSelector.innerHTML = '';
+    // Show only Library videos for playlist selection; multi-select via checkboxes
+    const selectable = Array.isArray(videos) ? videos.filter(v => v.status === STATUS.LIBRARY) : [];
+    if (!Array.isArray(selectable) || selectable.length === 0) {
+      el.playlistSelector.innerHTML = '<div class="message info">No library videos yet. Save videos to Library to add them.</div>';
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    selectable.forEach(v => {
+      const row = document.createElement('label');
+      row.className = 'checkbox-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = v._id;
+      cb.name = 'videoIds';
+      const title = document.createElement('span');
+      title.textContent = `${v.title} (${v.status})`;
+      row.appendChild(cb);
+      row.appendChild(title);
+      frag.appendChild(row);
+    });
+    el.playlistSelector.appendChild(frag);
+  }
+
+  /** Playlists: load & render */
+  async function loadPlaylists() {
+    try {
+      const items = await fetchJSON(`${API_URL}/playlists?limit=50`);
+      playlists = Array.isArray(items) ? items : [];
+      renderPlaylists(playlists);
+    } catch (err) {
+      if (el.playlistsEmpty) {
+        el.playlistsEmpty.hidden = false;
+        const p = el.playlistsEmpty.querySelector('p');
+        if (p) p.textContent = 'Unable to load playlists.';
+      }
+    }
+  }
+
+  function renderPlaylists(list) {
+    if (!el.playlistsList) return;
+    el.playlistsList.innerHTML = '';
+    if (!list || list.length === 0) {
+      if (el.playlistsEmpty) el.playlistsEmpty.hidden = false;
+      return;
+    }
+    if (el.playlistsEmpty) el.playlistsEmpty.hidden = true;
+    const frag = document.createDocumentFragment();
+    list.forEach(pl => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const total = (Array.isArray(pl.videos) ? pl.videos.length : 0) || 0;
+      const idx = typeof pl.currentIndex === 'number' ? pl.currentIndex : 0;
+      const schedule = pl.scheduleTime;
+      const badge = renderBadge(pl.status);
+      card.innerHTML = `
+        <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <h3 style="margin:0;">${escapeHtml(pl.name || 'Untitled Playlist')}</h3>
+            ${badge}
+          </div>
+        </div>
+        <div class="card-body" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div><strong>Scheduled:</strong> ${fmtDate(schedule)}</div>
+            <div><strong>Items:</strong> ${idx}/${total}</div>
+          </div>
+          <div>
+            <div><strong>Created:</strong> ${fmtDate(pl.createdAt)}</div>
+            <div><strong>Updated:</strong> ${fmtDate(pl.updatedAt)}</div>
+          </div>
+        </div>
+      `;
+      frag.appendChild(card);
+    });
+    el.playlistsList.appendChild(frag);
+  }
+
+  /** Playlist form submit */
+  function setupPlaylistForm() {
+    if (!el.playlistForm) return;
+    // Set min attribute to now
+    try {
+      const input = document.getElementById('playlist-scheduledAt');
+      if (input) {
+        const pad = (n) => String(n).padStart(2, '0');
+        const d = new Date();
+        const val = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        input.min = val;
+      }
+    } catch (_) {}
+
+    el.playlistForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (el.playlistMsg) { el.playlistMsg.textContent = ''; el.playlistMsg.className = 'message'; }
+      const name = document.getElementById('playlist-name')?.value?.trim();
+      const scheduledAt = document.getElementById('playlist-scheduledAt')?.value;
+      const rtmpUrl = document.getElementById('playlist-rtmpUrl')?.value?.trim();
+      const streamKey = document.getElementById('playlist-streamKey')?.value?.trim();
+      const loop = !!document.getElementById('playlist-loop')?.checked;
+      const vids = Array.from(el.playlistSelector.querySelectorAll('input[type="checkbox"][name="videoIds"]:checked')).map(cb => cb.value);
+      if (!name) { setPlaylistMessage('Playlist name is required.', 'error'); return; }
+      if (!scheduledAt) { setPlaylistMessage('Schedule date/time is required.', 'error'); return; }
+      if (!rtmpUrl || !/^rtmps?:\/\//i.test(rtmpUrl)) { setPlaylistMessage('Valid RTMP URL is required.', 'error'); return; }
+      if (!streamKey || streamKey.length < 8) { setPlaylistMessage('Stream Key (min 8 chars) is required.', 'error'); return; }
+      if (!Array.isArray(vids) || vids.length === 0) { setPlaylistMessage('Select at least one video.', 'error'); return; }
+
+      const btn = el.playlistForm.querySelector('button[type="submit"]');
+      if (btn) { btn.disabled = true; btn.classList.add('loading'); }
+      try {
+        const body = { name, scheduleTime: new Date(scheduledAt).toISOString(), videoIds: vids, rtmpUrl, streamKey, loop };
+        const created = await fetchJSON(`${API_URL}/playlists`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        showToast('Playlist created', 'success');
+        el.playlistForm.reset();
+        await loadPlaylists();
+      } catch (err) {
+        setPlaylistMessage(err.message || 'Failed to create playlist', 'error');
+      } finally {
+        if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
+      }
+    });
+  }
+
+  function setPlaylistMessage(text, cls = 'info') {
+    if (!el.playlistMsg) return;
+    el.playlistMsg.textContent = text;
+    el.playlistMsg.className = `message ${cls}`;
   }
 
   /** Upload with progress via XHR */
@@ -289,6 +467,7 @@
       const stopInput = el.form.querySelector('input[name="stopAt"]');
       const rtmpInput = el.form.querySelector('input[name="rtmpUrl"]');
       const keyInput = el.form.querySelector('input[name="streamKey"]');
+      const loopInput = document.getElementById('loop');
 
       const file = fileInput?.files?.[0];
       const title = titleInput?.value?.trim();
@@ -296,6 +475,7 @@
       const rtmpUrl = rtmpInput?.value?.trim();
       const streamKey = keyInput?.value?.trim();
       const stopAt = stopInput?.value || '';
+      const loop = !!loopInput?.checked;
 
       // Validation
       if (!file) return setMessage('Please choose a video file.', 'error');
@@ -332,6 +512,7 @@
       if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
       fd.append('rtmpUrl', rtmpUrl);
       fd.append('streamKey', streamKey);
+      fd.append('loop', loop ? 'true' : 'false');
 
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${API_URL}/videos/upload`);
@@ -373,6 +554,77 @@
     });
   }
 
+  /** Simple library upload (store for later, no schedule/RTMP) */
+  function setupLibraryUpload() {
+    if (!el.libraryForm) return;
+    el.libraryForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (el.libraryMessage) { el.libraryMessage.textContent = ''; el.libraryMessage.className = 'message'; }
+      const fileInput = el.libraryForm.querySelector('input[name="file"]');
+      const titleInput = el.libraryForm.querySelector('input[name="title"]');
+      const file = fileInput?.files?.[0];
+      const title = titleInput?.value?.trim();
+      if (!file) { setLibraryMessage('Please choose a video file.', 'error'); return; }
+      if (!/^video\//.test(file.type || 'video/')) { setLibraryMessage('File must be a video.', 'error'); return; }
+      const ext = String(file.name || '').split('.').pop()?.toLowerCase() || '';
+      if (ALLOWED_FORMATS.length && ext && !ALLOWED_FORMATS.includes(ext)) {
+        setLibraryMessage(`Unsupported format. Allowed: ${ALLOWED_FORMATS.join(', ')}`, 'error'); return;
+      }
+      if (file.size > MAX_FILE_SIZE) { const gb = (MAX_FILE_SIZE / (1024 ** 3)).toFixed(0); setLibraryMessage(`File exceeds ${gb}GB limit.`, 'error'); return; }
+      if (!title) { setLibraryMessage('Title is required.', 'error'); return; }
+
+      const submitBtn = el.libraryForm.querySelector('button[type="submit"]');
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.classList.add('loading'); }
+
+      const fd = new FormData();
+      fd.append('title', title);
+      fd.append('file', file, file.name);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_URL}/videos/library`);
+      xhr.upload.onprogress = (ev) => {
+        if (!ev.lengthComputable) return;
+        const pct = Math.round((ev.loaded / ev.total) * 100);
+        if (el.libraryProgress) el.libraryProgress.hidden = false;
+        if (el.libraryProgressBar) el.libraryProgressBar.style.width = `${pct}%`;
+      };
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState !== 4) return;
+        try {
+          const isOk = xhr.status >= 200 && xhr.status < 300;
+          const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
+          if (isOk) {
+            showToast('Saved to library', 'success');
+            el.libraryForm.reset();
+            loadVideos();
+          } else {
+            const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
+            setLibraryMessage(msg, 'error');
+            showToast('Upload failed', 'error');
+          }
+        } catch (e) {
+          setLibraryMessage('Unexpected response from server.', 'error');
+        }
+      };
+      xhr.onerror = () => {
+        setLibraryMessage('Network error during upload.', 'error');
+        showToast('Network error', 'error');
+      };
+      xhr.onloadend = () => {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.classList.remove('loading'); }
+        if (el.libraryProgressBar) el.libraryProgressBar.style.width = '0%';
+        if (el.libraryProgress) el.libraryProgress.hidden = true;
+      };
+      xhr.send(fd);
+    });
+  }
+
+  function setLibraryMessage(text, cls = 'info') {
+    if (!el.libraryMessage) return;
+    el.libraryMessage.textContent = text;
+    el.libraryMessage.className = `message ${cls}`;
+  }
+
   /** Message helper under upload form */
   function setMessage(text, cls = 'info') {
     if (!el.message) return;
@@ -392,7 +644,34 @@
       showToast('Stream started', 'success');
       await loadVideos();
     } catch (err) {
+      // If not due yet, offer force start fallback
+      if (!force && /Not scheduled yet/i.test(String(err.message || ''))) {
+        const ok = confirm('Not scheduled yet. Start instantly anyway?');
+        if (ok) return startStream(id, true);
+      }
       showToast(`Failed to start: ${err.message}`, 'error');
+    }
+  }
+
+  /** Instant Live for library items */
+  async function startInstant(id) {
+    const rtmpUrl = prompt('RTMP URL (e.g., rtmp://a.rtmp.youtube.com/live2)');
+    if (!rtmpUrl) return;
+    const streamKey = prompt('Stream Key');
+    if (!streamKey || streamKey.trim().length < 8) {
+      showToast('Valid stream key is required', 'error');
+      return;
+    }
+    try {
+      await fetchJSON(`${API_URL}/videos/${id}/stream/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true, rtmpUrl, streamKey }),
+      });
+      showToast('Instant Live started', 'success');
+      await loadVideos();
+    } catch (err) {
+      showToast(`Instant Live failed: ${err.message}`, 'error');
     }
   }
   async function stopStream(id) {
@@ -441,6 +720,7 @@
         <div class="form-row"><label>Stop At<input type="datetime-local" id="edit-stop" value="${toLocalInputValue(video.stopTime)}"></label></div>
         <div class="form-row"><label>RTMP URL<input type="text" id="edit-rtmp" value="${escapeHtml(video.rtmpUrl || '')}"></label></div>
         <div class="form-row"><label>Stream Key<input type="password" id="edit-key" value="${escapeHtml(video.streamKey || '')}"></label></div>
+        <div class="form-row"><label class="checkbox"><input type="checkbox" id="edit-loop" ${video.loop ? 'checked' : ''}><span>Loop video (continuous stream)</span></label></div>
       </div>
       <div class="modal-actions">
         <button class="btn primary" data-action="save"><i class="fa-regular fa-floppy-disk"></i> Save</button>
@@ -458,6 +738,7 @@
       const schedule = content.querySelector('#edit-schedule').value;
       const rtmp = content.querySelector('#edit-rtmp').value.trim();
       const key = content.querySelector('#edit-key').value.trim();
+      const loop = !!content.querySelector('#edit-loop').checked;
       const stopVal = content.querySelector('#edit-stop').value;
       if (!title) { showToast('Title is required', 'error'); return; }
       if (!schedule) { showToast('Schedule is required', 'error'); return; }
@@ -472,7 +753,8 @@
         }
       }
       try {
-        const body = { title, scheduleTime: new Date(schedule).toISOString(), rtmpUrl: rtmp, streamKey: key };
+        const body = { title, scheduleTime: new Date(schedule).toISOString(), rtmpUrl: rtmp, streamKey: key, loop };
+        if (video.status === STATUS.LIBRARY) { body.status = STATUS.SCHEDULED; }
         if (stopVal) body.stopTime = new Date(stopVal).toISOString();
         const updated = await fetchJSON(`${API_URL}/videos/${video._id}`, {
           method: 'PUT',
@@ -506,6 +788,7 @@
       const v = videos.find(x => x._id === id);
       if (!v) return;
       if (action === 'start') return startStream(id);
+      if (action === 'instant') return startInstant(id);
       if (action === 'stop') return stopStream(id);
       if (action === 'delete') return deleteVideo(id);
       if (action === 'edit') return openEditModal(v);
@@ -520,8 +803,7 @@
         const b = ev.target.closest('button[data-status]') || ev.target.closest('button.filter');
         if (!b) return;
         const status = b.getAttribute('data-status') || '';
-        currentFilter = status;
-        Array.from(el.filters.querySelectorAll('button.filter')).forEach(btn => btn.classList.toggle('active', btn === b));
+        setFilter(status, true);
         loadVideos();
       });
     }
@@ -531,13 +813,65 @@
     }
   }
 
+  /** Programmatically set filter and update button active state */
+  function setFilter(status, silent = false) {
+    currentFilter = status || '';
+    if (el.filters) {
+      const buttons = Array.from(el.filters.querySelectorAll('button.filter'));
+      buttons.forEach(btn => {
+        const s = btn.getAttribute('data-status') || '';
+        btn.classList.toggle('active', s === currentFilter);
+      });
+    }
+    if (!silent) loadVideos();
+  }
+
+  /** Navigation: show/hide sections and set default filters */
+  function setupNavigation() {
+    if (!el.nav) return;
+    const showView = (view) => {
+      const isPlaylist = view === 'playlist';
+      const isLive = view === 'live';
+      const isLibrary = view === 'library';
+
+      // Toggle sections
+      if (el.sectionPlaylistForm) el.sectionPlaylistForm.hidden = !isPlaylist;
+      if (el.sectionPlaylists) el.sectionPlaylists.hidden = !isPlaylist;
+      if (el.sectionUpload) el.sectionUpload.hidden = !isLive;
+      if (el.sectionLibraryUpload) el.sectionLibraryUpload.hidden = !isLibrary;
+      if (el.sectionVideos) el.sectionVideos.hidden = isPlaylist; // videos visible in live + library
+
+      // Set default filter per view
+      if (isLibrary) {
+        setFilter(STATUS.LIBRARY);
+      } else if (isLive) {
+        setFilter(STATUS.SCHEDULED);
+      } else {
+        setFilter('');
+      }
+
+      // Active nav state
+      Array.from(el.nav.querySelectorAll('.nav-link')).forEach(b => b.classList.toggle('active', b.getAttribute('data-view') === view));
+    };
+
+    el.nav.addEventListener('click', (ev) => {
+      const b = ev.target.closest('.nav-link[data-view]');
+      if (!b) return;
+      const view = b.getAttribute('data-view');
+      showView(view);
+    });
+
+    // Default view: live
+    showView('live');
+  }
+
   /** Auto-refresh every 10s */
   function startAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
     refreshTimer = setInterval(async () => {
       if (isRefreshing) return;
       isRefreshing = true;
-      try { await loadVideos(); } finally { isRefreshing = false; }
+      try { await Promise.all([loadVideos(), loadPlaylists()]); } finally { isRefreshing = false; }
     }, REFRESH_INTERVAL_MS);
   }
 
@@ -545,11 +879,15 @@
   async function init() {
     setBusy(true);
     try {
+      setupTheme();
+      setupNavigation();
       setupUpload();
+      setupLibraryUpload();
+      setupPlaylistForm();
       setupFilters();
       setupCardActions();
       // Load health and videos in parallel to avoid long perceived buffering
-      await Promise.all([loadHealth(), loadVideos()]);
+      await Promise.all([loadHealth(), loadVideos(), loadPlaylists()]);
       startAutoRefresh();
     } catch (err) {
       // Ensure spinner never gets stuck if an unexpected error occurs

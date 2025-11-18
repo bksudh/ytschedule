@@ -98,9 +98,13 @@ connectWithRetry(1, 3);
 
 const videosRouter = require('./routes/videos');
 app.use('/api/videos', videosRouter);
+const playlistsRouter = require('./routes/playlists');
+app.use('/api/playlists', playlistsRouter);
 
 const streamer = require('./utils/streamer');
 const Video = require('./models/Video');
+const Playlist = require('./models/Playlist');
+const supabase = require('./utils/supabase');
 
 const healthHandler = (req, res) => {
   const streams = streamer.getAllActiveStreams().length;
@@ -109,6 +113,16 @@ const healthHandler = (req, res) => {
 
 app.get('/api/health', healthHandler);
 app.get('/health', healthHandler);
+
+// Supabase health
+app.get('/api/supabase/health', async (req, res) => {
+  try {
+    const status = await supabase.getStatus();
+    res.status(200).json(status);
+  } catch (err) {
+    res.status(200).json({ url: false, anon: false, admin: false, connected: false });
+  }
+});
 
 // Cron: every minute, auto-stop streams at stopTime and start next due video (sequential)
 function startCron() {
@@ -128,10 +142,74 @@ function startCron() {
         }
       }
 
+      // 1a) If no active streams and a running playlist has finished all items,
+      //     either mark completed or reset to start again when loop is enabled
+      const activeCountPre = streamer.getAllActiveStreams().length;
+      if (activeCountPre === 0) {
+        const donePlaylists = await Playlist.find({ status: 'running' }).lean().exec();
+        for (const pl of donePlaylists) {
+          if (Array.isArray(pl.videos) && typeof pl.currentIndex === 'number' && pl.currentIndex >= pl.videos.length) {
+            try {
+              if (pl.loop) {
+                await Playlist.findByIdAndUpdate(pl._id, { currentIndex: 0 }).exec();
+                console.log(`[Cron] Playlist ${pl._id} loop enabled; resetting to first item.`);
+                // Keep status as 'running'; next cycle will start first item
+              } else {
+                const endedAt = new Date();
+                await Playlist.findByIdAndUpdate(pl._id, { status: 'completed', streamEndedAt: endedAt }).exec();
+                try { await supabase.syncPlaylist({ _id: pl._id, status: 'completed', streamEndedAt: endedAt }); } catch (_) {}
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
       // 2) If no active streams, start the next due scheduled video
       const activeCount = streamer.getAllActiveStreams().length;
       if (activeCount > 0) return;
-      const next = await Video.findOne({ status: 'scheduled', scheduleTime: { $lte: now } }).sort({ scheduleTime: 1 });
+
+      // 2a) If there is a running playlist, start its next item
+      let running = await Playlist.findOne({ status: 'running' }).sort({ updatedAt: 1 }).exec();
+      if (running && Array.isArray(running.videos) && running.currentIndex < running.videos.length) {
+        const nextVideoId = String(running.videos[running.currentIndex]);
+        try {
+          await streamer.startStream(nextVideoId, { rtmpUrl: running.rtmpUrl, streamKey: running.streamKey });
+          running.currentIndex += 1;
+          await running.save();
+          try { await supabase.syncPlaylist(running); } catch (_) {}
+          const v = await Video.findById(nextVideoId).lean().exec();
+          console.log(`[Cron] Started playlist item ${running.currentIndex}/${running.videos.length}: ${v && v.title ? v.title : nextVideoId}`);
+          return;
+        } catch (err) {
+          console.error(`[Cron] Failed to start playlist item for ${running._id}: ${err.message}`);
+        }
+      }
+
+      // 2b) If a scheduled playlist is due, mark running and start first item
+      const duePlaylist = await Playlist.findOne({ status: 'scheduled', scheduleTime: { $lte: now } }).sort({ scheduleTime: 1 }).exec();
+      if (duePlaylist) {
+        duePlaylist.status = 'running';
+        duePlaylist.streamStartedAt = new Date();
+        await duePlaylist.save();
+        try { await supabase.syncPlaylist(duePlaylist); } catch (_) {}
+        if (Array.isArray(duePlaylist.videos) && duePlaylist.videos.length > 0) {
+          const firstId = String(duePlaylist.videos[duePlaylist.currentIndex] || duePlaylist.videos[0]);
+          try {
+            await streamer.startStream(firstId, { rtmpUrl: duePlaylist.rtmpUrl, streamKey: duePlaylist.streamKey, playlistId: duePlaylist._id });
+            duePlaylist.currentIndex = 1;
+            await duePlaylist.save();
+            try { await supabase.syncPlaylist(duePlaylist); } catch (_) {}
+            const v = await Video.findById(firstId).lean().exec();
+            console.log(`[Cron] Started first playlist item: ${v && v.title ? v.title : firstId}`);
+            return;
+          } catch (err) {
+            console.error(`[Cron] Failed to start first playlist item for ${duePlaylist._id}: ${err.message}`);
+          }
+        }
+      }
+
+      // 2c) Fallback: start next due scheduled video not part of a playlist
+      const next = await Video.findOne({ status: 'scheduled', scheduleTime: { $lte: now }, $or: [ { playlistId: { $exists: false } }, { playlistId: null } ] }).sort({ scheduleTime: 1 });
       if (!next) return;
       try {
         await streamer.startStream(next._id.toString());

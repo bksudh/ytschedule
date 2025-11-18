@@ -18,12 +18,63 @@
       <div class="status-bar">
         <span class="status-item"><i class="fa-regular fa-heart"></i> <span id="health-status">Checking…</span></span>
         <span class="status-item"><i class="fa-solid fa-signal"></i> Active Streams: <span id="streams-count">—</span></span>
+        <span class="status-item" style="margin-left:auto;">
+          <button id="theme-toggle" class="btn small" title="Toggle theme"><i class="fa-regular fa-moon"></i> Dark</button>
+        </span>
       </div>
     </header>
 
+    <!-- Main Navigation -->
+    <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
+      <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
+      <button class="nav-link active" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
+      <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
+    </nav>
+
     <main class="container">
+      <!-- Create Playlist Section -->
+      <section id="section-playlist-form" class="card" aria-labelledby="playlist-title" hidden>
+        <div class="section-header">
+          <h2 id="playlist-title"><i class="fa-solid fa-list"></i> Create Playlist</h2>
+        </div>
+        <form id="playlist-form" class="form-grid">
+          <div class="form-row">
+            <label for="playlist-name">Playlist Name</label>
+            <input id="playlist-name" type="text" name="name" placeholder="Morning Stream Marathon" required />
+          </div>
+          <div class="form-row">
+            <label for="playlist-scheduledAt">Schedule Date &amp; Time</label>
+            <input id="playlist-scheduledAt" type="datetime-local" name="scheduledAt" required />
+          </div>
+          <div class="form-row">
+            <label for="playlist-rtmpUrl">RTMP URL (playlist)</label>
+            <input id="playlist-rtmpUrl" type="text" name="rtmpUrl" value="rtmp://a.rtmp.youtube.com/live2" required />
+            <small>Applied to all items in the playlist.</small>
+          </div>
+          <div class="form-row">
+            <label for="playlist-streamKey">Stream Key (playlist)</label>
+            <input id="playlist-streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+          </div>
+          <div class="form-row">
+            <label class="checkbox">
+              <input id="playlist-loop" type="checkbox" name="loop" />
+              <span>Loop playlist (repeat videos continuously)</span>
+            </label>
+            <small>When enabled, the playlist restarts after the last item.</small>
+          </div>
+          <div class="form-row">
+            <label>Select Videos</label>
+            <div id="playlist-video-selector" class="selector"></div>
+            <small>Select multiple videos to run sequentially.</small>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary"><i class="fa-solid fa-list-check"></i> Create Playlist</button>
+          </div>
+          <div id="playlist-message" class="message" role="alert" aria-live="polite"></div>
+        </form>
+      </section>
       <!-- Upload Section -->
-      <section class="card" aria-labelledby="upload-title">
+      <section id="section-upload" class="card" aria-labelledby="upload-title">
         <div class="section-header">
           <h2 id="upload-title"><i class="fa-solid fa-upload"></i> Upload Video</h2>
         </div>
@@ -59,6 +110,13 @@
             <label for="streamKey">Stream Key</label>
             <input id="streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
           </div>
+          <div class="form-row">
+            <label class="checkbox">
+              <input id="loop" type="checkbox" name="loop" />
+              <span>Loop video (continuous stream until stopped)</span>
+            </label>
+            <small>Stops automatically at Stop At time if provided.</small>
+          </div>
 
           <div class="form-actions">
             <button type="submit" class="btn primary"><i class="fa-solid fa-paper-plane"></i> Upload</button>
@@ -71,13 +129,42 @@
         <div id="message" class="message" role="alert" aria-live="polite"></div>
       </section>
 
+      <!-- Upload to Library Section -->
+      <section id="section-library-upload" class="card" aria-labelledby="library-upload-title" hidden>
+        <div class="section-header">
+          <h2 id="library-upload-title"><i class="fa-regular fa-folder"></i> Upload to Library</h2>
+        </div>
+        <form id="library-upload-form" class="form-grid">
+          <div class="form-row">
+            <label for="library-title">Video Title</label>
+            <input id="library-title" type="text" name="title" placeholder="My Saved Video" required />
+          </div>
+
+          <div class="form-row">
+            <label for="library-file">Video File</label>
+            <input id="library-file" type="file" name="file" accept="video/*" required />
+            <small><span id="library-file-size">—</span></small>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn"><i class="fa-solid fa-floppy-disk"></i> Save to Library</button>
+          </div>
+
+          <div id="library-upload-progress" class="progress" hidden>
+            <div id="library-upload-progress-bar" class="progress-bar" style="width:0%"></div>
+          </div>
+        </form>
+        <div id="library-message" class="message" role="alert" aria-live="polite"></div>
+      </section>
+
       <!-- Video List Section -->
-      <section class="card" aria-labelledby="videos-title">
+      <section id="section-videos" class="card" aria-labelledby="videos-title">
         <div class="section-header">
           <h2 id="videos-title"><i class="fa-solid fa-film"></i> Videos</h2>
           <div class="controls">
             <div class="filters" id="filter-buttons" role="group" aria-label="Filters">
               <button class="btn filter active" data-status="">All</button>
+              <button class="btn filter" data-status="library">Library</button>
               <button class="btn filter" data-status="scheduled">Scheduled</button>
               <button class="btn filter" data-status="streaming">Streaming</button>
               <button class="btn filter" data-status="completed">Completed</button>
@@ -96,6 +183,18 @@
         <div id="empty-state" class="empty" hidden>
           <i class="fa-regular fa-face-sad-tear"></i>
           <p>No videos found. Upload one to get started.</p>
+        </div>
+      </section>
+
+      <!-- Playlists Section -->
+      <section id="section-playlists" class="card" aria-labelledby="playlists-title" hidden>
+        <div class="section-header">
+          <h2 id="playlists-title"><i class="fa-solid fa-layer-group"></i> Playlists</h2>
+        </div>
+        <div id="playlists-list" class="grid" aria-live="polite"></div>
+        <div id="playlists-empty" class="empty" hidden>
+          <i class="fa-regular fa-face-smile"></i>
+          <p>No playlists yet. Create one above.</p>
         </div>
       </section>
 
