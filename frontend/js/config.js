@@ -27,7 +27,7 @@
     REFRESH_INTERVAL: 10_000,
     MAX_FILE_SIZE: 5 * 1024 * 1024 * 1024, // 5GB
     ALLOWED_FORMATS: ['mp4', 'avi', 'mov', 'mkv', 'flv'],
-    DEFAULT_RTMP_URL: 'rtmp://a.rtmp.youtube.com/live2',
+    DEFAULT_RTMP_URL: 'rtmps://a.rtmp.youtube.com/live2',
     DATE_FORMAT,
     YOUTUBE_HELP_URL: 'https://support.google.com/youtube/answer/2474026',
   };

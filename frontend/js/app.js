@@ -774,7 +774,7 @@
 
   /** Instant Live for library items */
   async function startInstant(id) {
-    const rtmpUrl = prompt('RTMP URL (e.g., rtmp://a.rtmp.youtube.com/live2)');
+    const rtmpUrl = prompt('RTMP URL (e.g., rtmps://a.rtmp.youtube.com/live2)');
     if (!rtmpUrl) return;
     const streamKey = prompt('Stream Key');
     if (!streamKey || streamKey.trim().length < 8) {
