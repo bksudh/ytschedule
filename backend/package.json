@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "preview": "node ../frontend/dev-server.js"
   },
   "dependencies": {
     "@ffprobe-installer/ffprobe": "^1.4.1",

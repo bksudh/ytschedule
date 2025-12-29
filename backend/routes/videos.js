@@ -928,6 +928,7 @@ router.get('/overlay/live/sse', async (req, res, next) => {
 router.put('/overlay/live', async (req, res, next) => {
   try {
     liveOverlayConfig = req.body || {};
+    try { streamer.setGlobalOverlay(liveOverlayConfig); } catch (_) {}
     const payload = `data: ${JSON.stringify(liveOverlayConfig || {})}\n\n`;
     for (const client of Array.from(liveSseClients)) {
       try { client.write(payload); } catch (_) {}

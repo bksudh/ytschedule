@@ -19,18 +19,18 @@
           <i class="fa-brands fa-youtube"></i>
           <h1>YouTube Live Streaming Scheduler</h1>
         </div>
-        <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
-          <button class="nav-link" data-view="active"><i class="fa-solid fa-signal"></i> Active Streams <span id="nav-active-count" class="badge-pill">0</span></button>
-          <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
-          <button class="nav-link" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
-          <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
-          <button class="nav-link" data-view="overlay"><i class="fa-solid fa-layer-group"></i> Overlay Studio</button>
-        </nav>
         <div class="actions">
           <span class="status-item"><span id="health-status">Checking…</span></span>
           <button id="theme-toggle" class="btn small" title="Toggle theme"><i class="fa-regular fa-moon"></i> Dark</button>
         </div>
       </div>
+      <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
+        <button class="nav-link" data-view="active"><i class="fa-solid fa-signal"></i> Active Streams <span id="nav-active-count" class="badge-pill">0</span></button>
+        <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
+        <button class="nav-link" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
+        <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
+        <button class="nav-link" data-view="overlay"><i class="fa-solid fa-layer-group"></i> Overlay Studio</button>
+      </nav>
     </header>
 
     <main id="main-content" class="container">
@@ -316,19 +316,100 @@
                   <label class="float"><input id="ov-ticker-size" type="number" min="10" max="96" step="1" value="24" /><span>Ticker Size</span></label>
                 </div>
                 <div class="form-row">
+                  <label class="checkbox"><input id="ov-ticker-bold" type="checkbox" /><span>Ticker Bold</span></label>
+                </div>
+                <div class="form-row">
                   <label class="float"><input id="ov-ticker-color" type="color" value="#ffffff" /><span>Ticker Color</span></label>
                 </div>
                 <div class="form-row">
                   <select id="ov-ticker-pos">
                     <option value="bottom">Bottom</option>
                     <option value="top">Top</option>
+                    <option value="custom">Custom</option>
                   </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-y" type="number" min="0" max="720" step="1" placeholder=" " /><span>Ticker Y (Custom)</span></label>
                 </div>
                 <div class="form-row">
                   <label class="float"><input id="ov-ticker-bg" type="color" value="#000000" /><span>Ticker BG</span></label>
                 </div>
                 <div class="form-row">
+                  <select id="ov-ticker-bg-mode">
+                    <option value="solid" selected>Solid</option>
+                    <option value="hgrad">Horizontal Gradient</option>
+                    <option value="vgrad">Vertical Gradient</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-bg2" type="color" value="#000000" /><span>Ticker BG 2</span></label>
+                </div>
+                <div class="form-row">
                   <label class="float"><input id="ov-ticker-opa" type="range" min="0" max="1" step="0.05" value="0.4" /><span>Ticker BG Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-border-width" type="number" min="0" max="20" step="1" value="0" /><span>Ticker Border Width</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-border-color" type="color" value="#ffffff" /><span>Ticker Border Color</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-border-opa" type="range" min="0" max="1" step="0.05" value="1" /><span>Ticker Border Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-border-radius" type="number" min="0" max="100" step="1" value="0" /><span>Ticker Border Radius</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-signal-stream"></i> Now Live</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-nl-show" type="checkbox" /><span>Show Now Live</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-text" type="text" value="NOW LIVE" /><span>Label Text</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><textarea id="ov-nl-items" rows="4" placeholder="HH:MM - Program&#10;HH:MM - Program"></textarea><span>Program Lines</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-nl-pos">
+                    <option value="tl">Top-Left</option>
+                    <option value="tr">Top-Right</option>
+                    <option value="bl">Bottom-Left</option>
+                    <option value="br">Bottom-Right</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-y" type="number" min="0" max="720" step="1" placeholder=" " /><span>Y Offset</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-label-bg" type="color" value="#ff0000" /><span>Label BG</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-label-opa" type="range" min="0" max="1" step="0.05" value="0.8" /><span>Label BG Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-label-color" type="color" value="#ffffff" /><span>Label Color</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-nl-item-color" type="color" value="#ffffff" /><span>Item Color</span></label>
+                </div>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <label class="float"><input id="ov-nl-label-size" type="number" min="10" max="96" step="1" value="18" /><span>Label Size</span></label>
+                  <label class="float"><input id="ov-nl-item-size" type="number" min="10" max="96" step="1" value="16" /><span>Item Size</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-nl-anim">
+                    <option value="pulse" selected>Pulse</option>
+                    <option value="slide">Slide</option>
+                    <option value="bounce">Bounce</option>
+                    <option value="shine">Shine</option>
+                    <option value="scroll">Scroll</option>
+                    <option value="none">None</option>
+                  </select>
                 </div>
               </div>
             </details>
@@ -348,10 +429,62 @@
                   <label class="checkbox"><input id="ov-clock-date" type="checkbox" /><span>Show Date</span></label>
                 </div>
                 <div class="form-row">
+                  <label class="checkbox"><input id="ov-clock-seconds" type="checkbox" checked /><span>Show Seconds</span></label>
+                </div>
+                <div class="form-row">
                   <label class="float"><input id="ov-clock-color" type="color" value="#ffffff" /><span>Clock Color</span></label>
                 </div>
                 <div class="form-row">
                   <label class="float"><input id="ov-clock-size" type="number" min="10" max="96" step="1" value="20" /><span>Clock Size</span></label>
+                </div>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <label class="float"><input id="ov-clock-x" type="number" min="0" max="1280" step="1" placeholder=" " /><span>Clock X</span></label>
+                  <label class="float"><input id="ov-clock-y" type="number" min="0" max="720" step="1" placeholder=" " /><span>Clock Y</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-clock-font">
+                    <option value="Segoe UI">Segoe UI</option>
+                    <option value="Inter">Inter</option>
+                    <option value="Roboto">Roboto</option>
+                    <option value="Arial">Arial</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-clock-bold" type="checkbox" /><span>Bold</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-clock-bg-enable" type="checkbox" /><span>Background</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-bg" type="color" value="#000000" /><span>Background Color</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-bg-opa" type="range" min="0" max="1" step="0.05" value="0.4" /><span>Background Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-bg-pad" type="number" min="0" max="100" step="1" value="8" /><span>Background Padding</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-clock-bg-shape">
+                    <option value="rect">Rectangle</option>
+                    <option value="rounded" selected>Rounded</option>
+                    <option value="pill">Pill</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-bg-radius" type="number" min="0" max="100" step="1" value="10" /><span>Corner Radius</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-border-width" type="number" min="0" max="20" step="1" value="0" /><span>Clock Border Width</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-border-color" type="color" value="#ffffff" /><span>Clock Border Color</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-border-opa" type="range" min="0" max="1" step="0.05" value="1" /><span>Clock Border Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-border-radius" type="number" min="0" max="100" step="1" value="10" /><span>Clock Border Radius</span></label>
                 </div>
               </div>
             </details>

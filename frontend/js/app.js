@@ -96,15 +96,50 @@
     ovTickerSpeed: document.getElementById('ov-ticker-speed'),
     ovTickerFont: document.getElementById('ov-ticker-font'),
     ovTickerSize: document.getElementById('ov-ticker-size'),
+    ovTickerBold: document.getElementById('ov-ticker-bold'),
     ovTickerColor: document.getElementById('ov-ticker-color'),
     ovTickerPos: document.getElementById('ov-ticker-pos'),
+    ovTickerY: document.getElementById('ov-ticker-y'),
     ovTickerBg: document.getElementById('ov-ticker-bg'),
+    ovTickerBgMode: document.getElementById('ov-ticker-bg-mode'),
+    ovTickerBg2: document.getElementById('ov-ticker-bg2'),
     ovTickerOpa: document.getElementById('ov-ticker-opa'),
+    ovTickerBorderWidth: document.getElementById('ov-ticker-border-width'),
+    ovTickerBorderColor: document.getElementById('ov-ticker-border-color'),
+    ovTickerBorderOpa: document.getElementById('ov-ticker-border-opa'),
+    ovTickerBorderRadius: document.getElementById('ov-ticker-border-radius'),
+    ovNlShow: document.getElementById('ov-nl-show'),
+    ovNlText: document.getElementById('ov-nl-text'),
+    ovNlItems: document.getElementById('ov-nl-items'),
+    ovNlPos: document.getElementById('ov-nl-pos'),
+    ovNlY: document.getElementById('ov-nl-y'),
+    ovNlLabelBg: document.getElementById('ov-nl-label-bg'),
+    ovNlLabelOpa: document.getElementById('ov-nl-label-opa'),
+    ovNlLabelColor: document.getElementById('ov-nl-label-color'),
+    ovNlItemColor: document.getElementById('ov-nl-item-color'),
+    ovNlLabelSize: document.getElementById('ov-nl-label-size'),
+    ovNlItemSize: document.getElementById('ov-nl-item-size'),
+    ovNlAnim: document.getElementById('ov-nl-anim'),
     ovClockEnable: document.getElementById('ov-clock-enable'),
     ovClockFormat: document.getElementById('ov-clock-format'),
     ovClockDate: document.getElementById('ov-clock-date'),
+    ovClockSeconds: document.getElementById('ov-clock-seconds'),
     ovClockColor: document.getElementById('ov-clock-color'),
     ovClockSize: document.getElementById('ov-clock-size'),
+    ovClockX: document.getElementById('ov-clock-x'),
+    ovClockY: document.getElementById('ov-clock-y'),
+    ovClockFont: document.getElementById('ov-clock-font'),
+    ovClockBold: document.getElementById('ov-clock-bold'),
+    ovClockBgEnable: document.getElementById('ov-clock-bg-enable'),
+    ovClockBg: document.getElementById('ov-clock-bg'),
+    ovClockBgOpa: document.getElementById('ov-clock-bg-opa'),
+    ovClockBgPad: document.getElementById('ov-clock-bg-pad'),
+    ovClockBgShape: document.getElementById('ov-clock-bg-shape'),
+    ovClockBgRadius: document.getElementById('ov-clock-bg-radius'),
+    ovClockBorderWidth: document.getElementById('ov-clock-border-width'),
+    ovClockBorderColor: document.getElementById('ov-clock-border-color'),
+    ovClockBorderOpa: document.getElementById('ov-clock-border-opa'),
+    ovClockBorderRadius: document.getElementById('ov-clock-border-radius'),
     ovLogoUrl: document.getElementById('ov-logo-url'),
     ovLogoPos: document.getElementById('ov-logo-pos'),
     ovLogoSize: document.getElementById('ov-logo-size'),
@@ -1503,18 +1538,56 @@
           speed: 120,
           font: 'Segoe UI',
           size: 24,
+          bold: false,
           color: '#ffffff',
           pos: 'bottom',
+          y: null,
           bg: '#000000',
+          bg2: '#000000',
+          bgMode: 'solid',
           opa: 0.4,
+          offset: 0,
+          borderWidth: 0,
+          borderColor: '#ffffff',
+          borderOpa: 1,
+          borderRadius: 0,
+        },
+        nowLive: {
+          show: false,
+          text: 'NOW LIVE',
+          items: '',
+          pos: 'tl',
+          y: 0,
+          labelBg: '#ff0000',
+          labelOpa: 0.8,
+          labelColor: '#ffffff',
+          itemColor: '#ffffff',
+          labelSize: 18,
+          itemSize: 16,
+          anim: 'pulse',
           offset: 0,
         },
         clock: {
           enable: false,
           format: '24',
           showDate: false,
+          showSeconds: true,
           color: '#ffffff',
           size: 20,
+          x: (this.canvas ? this.canvas.width : 1280) / 2,
+          y: 8,
+          font: 'Segoe UI',
+          bold: false,
+          bgEnable: false,
+          bgColor: '#000000',
+          bgOpa: 0.4,
+          bgPad: 8,
+          bgShape: 'rounded', // rect | rounded | pill
+          bgRadius: 10,
+          borderWidth: 0,
+          borderColor: '#ffffff',
+          borderOpa: 1,
+          borderRadius: 10,
         },
         logo: {
           url: '',
@@ -1561,6 +1634,9 @@
     }
     updateClock(partial) {
       Object.assign(this.state.clock, partial || {});
+    }
+    updateNowLive(partial) {
+      Object.assign(this.state.nowLive, partial || {});
     }
     updateLogo(partial) {
       Object.assign(this.state.logo, partial || {});
@@ -1615,44 +1691,251 @@
       const ctx = this.ctx;
       const H = this.canvas.height;
       const size = Math.max(10, Number(t.size) || 24);
-      const y = t.pos === 'top' ? size + 8 : H - 8;
-      if (t.opa > 0) {
-        const h = size + 12;
-        const y0 = t.pos === 'top' ? 0 : H - h;
-        ctx.fillStyle = rgba(t.bg, t.opa);
-        ctx.fillRect(0, y0, this.canvas.width, h);
+      const bandH = size + 12;
+      const yVal = Number.isFinite(Number(t.y)) ? Number(t.y) : null;
+      let bandTop = 0;
+      if (t.pos === 'top') {
+        const offset = Math.max(0, yVal || 0);
+        bandTop = Math.max(0, Math.min(H - bandH, offset));
+      } else if (t.pos === 'bottom') {
+        const offset = Math.max(0, yVal || 0);
+        bandTop = Math.max(0, Math.min(H - bandH, H - bandH - offset));
+      } else {
+        const cy = yVal ?? (H - bandH - 8);
+        bandTop = Math.max(0, Math.min(H - bandH, cy - bandH / 2));
       }
-      ctx.font = `${size}px ${t.font || 'Segoe UI'}, sans-serif`;
+      const y = bandTop + bandH / 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, bandTop, this.canvas.width, bandH);
+      ctx.clip();
+      if (t.opa > 0) {
+        const mode = String(t.bgMode || 'solid');
+        if (mode === 'hgrad') {
+          const g = ctx.createLinearGradient(0, 0, this.canvas.width, 0);
+          g.addColorStop(0, rgba(t.bg, t.opa));
+          g.addColorStop(1, rgba(t.bg2 || t.bg, t.opa));
+          ctx.fillStyle = g;
+          ctx.fillRect(0, bandTop, this.canvas.width, bandH);
+        } else if (mode === 'vgrad') {
+          const g = ctx.createLinearGradient(0, bandTop, 0, bandTop + bandH);
+          g.addColorStop(0, rgba(t.bg, t.opa));
+          g.addColorStop(1, rgba(t.bg2 || t.bg, t.opa));
+          ctx.fillStyle = g;
+          ctx.fillRect(0, bandTop, this.canvas.width, bandH);
+        } else {
+          ctx.fillStyle = rgba(t.bg, t.opa);
+          ctx.fillRect(0, bandTop, this.canvas.width, bandH);
+        }
+      }
+      const bw = Math.max(0, Number(t.borderWidth) || 0);
+      const bo = Math.max(0, Math.min(1, Number(t.borderOpa)));
+      if (bw > 0 && bo > 0) {
+        ctx.lineWidth = bw;
+        ctx.strokeStyle = rgba(t.borderColor || '#ffffff', bo);
+        const r = Math.max(0, Math.min(Number(t.borderRadius) || 0, bandH / 2));
+        if (r > 0) {
+          ctx.beginPath();
+          const x1 = 0; const x2 = this.canvas.width;
+          const y1 = bandTop; const y2 = bandTop + bandH;
+          ctx.moveTo(x1 + r, y1);
+          ctx.lineTo(x2 - r, y1);
+          ctx.quadraticCurveTo(x2, y1, x2, y1 + r);
+          ctx.lineTo(x2, y2 - r);
+          ctx.quadraticCurveTo(x2, y2, x2 - r, y2);
+          ctx.lineTo(x1 + r, y2);
+          ctx.quadraticCurveTo(x1, y2, x1, y2 - r);
+          ctx.lineTo(x1, y1 + r);
+          ctx.quadraticCurveTo(x1, y1, x1 + r, y1);
+          ctx.closePath();
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(0, bandTop, this.canvas.width, bandH);
+        }
+      }
+      const weight = t.bold ? 'bold ' : '';
+      ctx.font = `${weight}${size}px ${t.font || 'Segoe UI'}, sans-serif`;
+      ctx.textBaseline = 'middle';
       ctx.fillStyle = t.color || '#ffffff';
       const speed = Math.max(10, Number(t.speed) || 120);
-      t.offset = ((t.offset || 0) - speed * dt) % (this.canvas.width * 2);
-      let x = this.canvas.width + (t.offset || 0);
+      t.offset = (typeof t.offset === 'number' ? t.offset : 0) + speed * dt;
       const gap = 40;
       const text = String(t.text);
       const w = ctx.measureText(text).width;
+      const tile = w + gap;
+      let x = this.canvas.width - (t.offset % tile);
       while (x > -w) {
         ctx.fillText(text, x, y);
-        x -= w + gap;
+        x -= tile;
       }
+      ctx.restore();
+    }
+    drawNowLive(dt) {
+      const nl = this.state.nowLive;
+      if (!nl.show) return;
+      const ctx = this.ctx;
+      const padX = 10;
+      const padY = 6;
+      const labelSize = Math.max(10, Number(nl.labelSize) || 18);
+      const itemSize = Math.max(10, Number(nl.itemSize) || 16);
+      const linesRaw = String(nl.items || '').split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
+      const W = this.canvas.width;
+      const H = this.canvas.height;
+      const pos = String(nl.pos || 'tl');
+      const isTop = pos.includes('t') || pos === 'custom';
+      const isLeft = pos.includes('l') || pos === 'custom';
+      const baseYOff = Math.max(0, Number(nl.y) || 0);
+      const labelText = String(nl.text || 'NOW LIVE');
+      nl.offset = (typeof nl.offset === 'number' ? nl.offset : 0) + dt;
+      const t = nl.offset;
+      const anim = String(nl.anim || 'pulse');
+      const pulseScale = anim === 'pulse' ? (1 + 0.06 * Math.sin((this.lastTs || 0) / 300)) : 1;
+      ctx.save();
+      ctx.font = `${Math.round(labelSize * pulseScale)}px ${'Segoe UI'}, sans-serif`;
+      const labelW = ctx.measureText(labelText).width + padX * 2;
+      const labelH = Math.round(labelSize * pulseScale) + padY * 2;
+      let x = isLeft ? 8 : (W - labelW - 8);
+      let y = isTop ? (8 + baseYOff) : (H - labelH - 8 - baseYOff);
+      if (anim === 'slide') {
+        x += Math.sin(t * 2) * 12;
+      } else if (anim === 'bounce') {
+        y += Math.sin(t * 3) * 6;
+      }
+      ctx.fillStyle = rgba(nl.labelBg || '#ff0000', Number(nl.labelOpa) || 0);
+      ctx.fillRect(x, y, labelW, labelH);
+      ctx.fillStyle = nl.labelColor || '#ffffff';
+      ctx.textAlign = isLeft ? 'start' : 'end';
+      ctx.textBaseline = 'middle';
+      const tx = isLeft ? (x + padX) : (x + labelW - padX);
+      const ty = y + labelH / 2;
+      ctx.fillText(labelText, tx, ty);
+      if (anim === 'shine') {
+        const bandW = Math.max(40, Math.floor(labelW * 0.35));
+        const sX = x + ((t * 80) % (labelW + bandW)) - bandW;
+        const g = ctx.createLinearGradient(sX, y, sX + bandW, y + labelH);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.25)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x, y, labelW, labelH);
+      }
+      ctx.font = `${itemSize}px ${'Segoe UI'}, sans-serif`;
+      ctx.textAlign = isLeft ? 'start' : 'end';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = nl.itemColor || '#ffffff';
+      let itemX = x;
+      const advance = (isTop ? 1 : -1);
+      const baseStart = isTop ? (y + labelH + 4) : (y - 4);
+      let itemY = baseStart;
+      if (anim === 'scroll' && linesRaw.length > 0) {
+        const ih = itemSize + padY;
+        const totalH = linesRaw.length * (ih + 2);
+        const spd = 30;
+        const shift = (t * spd) % totalH;
+        itemY = baseStart - advance * shift;
+      }
+      for (let i = 0; i < linesRaw.length; i++) {
+        const line = linesRaw[i];
+        const tw = ctx.measureText(line).width + padX * 2;
+        const iw = Math.min(Math.max(labelW, tw), W - 16);
+        const ih = itemSize + padY;
+        const rx = isLeft ? itemX : (W - iw - 8);
+        const ry = itemY;
+        ctx.fillStyle = rgba('#000000', 0.25);
+        ctx.fillRect(rx, ry, iw, ih);
+        ctx.fillStyle = nl.itemColor || '#ffffff';
+        const tx2 = isLeft ? (rx + padX) : (rx + iw - padX);
+        const ty2 = ry + padY / 2;
+        ctx.fillText(line, tx2, ty2);
+        itemY += advance * (ih + 2);
+      }
+      ctx.restore();
     }
     drawClock() {
       const c = this.state.clock;
       if (!c.enable) return;
       const ctx = this.ctx;
       const size = Math.max(10, Number(c.size) || 20);
-      ctx.font = `${size}px Segoe UI, sans-serif`;
-      ctx.fillStyle = c.color || '#ffffff';
+      const weight = c.bold ? 'bold ' : '';
+      const fontFamily = c.font || 'Segoe UI';
+      ctx.font = `${weight}${size}px ${fontFamily}, sans-serif`;
+      const textColor = c.color || '#ffffff';
+      ctx.fillStyle = textColor;
       const d = new Date();
       const hh = d.getHours();
       const mm = String(d.getMinutes()).padStart(2, '0');
       const ss = String(d.getSeconds()).padStart(2, '0');
       const h12 = ((hh + 11) % 12) + 1;
       const ampm = hh >= 12 ? 'PM' : 'AM';
-      const time = c.format === '12' ? `${h12}:${mm}:${ss} ${ampm}` : `${String(hh).padStart(2,'0')}:${mm}:${ss}`;
+      const time = c.format === '12'
+        ? `${h12}:${mm}${c.showSeconds ? ':' + ss : ''} ${ampm}`
+        : `${String(hh).padStart(2,'0')}:${mm}${c.showSeconds ? ':' + ss : ''}`;
       const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const text = c.showDate ? `${date} ${time}` : time;
       ctx.textAlign = 'center';
-      ctx.fillText(text, this.canvas.width / 2, size + 8);
+      ctx.textBaseline = 'top';
+      const x = Number.isFinite(c.x) ? c.x : (this.canvas.width / 2);
+      const y = Number.isFinite(c.y) ? c.y : 8;
+      const tw = ctx.measureText(text).width;
+      const pad = Math.max(0, Number(c.bgPad) || 0);
+      const bw = tw + pad * 2;
+      const bh = size + pad * 2;
+      const bx = x - bw / 2;
+      const by = y - pad;
+      const shape = String(c.bgShape || 'rounded');
+      let rad = 0;
+      if (shape === 'pill') rad = bh / 2;
+      else if (shape === 'rounded') rad = Math.max(0, Number(c.bgRadius) || 0);
+      if (c.bgEnable) {
+        ctx.fillStyle = rgba(c.bgColor || '#000000', Number(c.bgOpa) || 0);
+        if (rad > 0) {
+          ctx.beginPath();
+          const r = rad;
+          const x2 = bx + bw;
+          const y2 = by + bh;
+          ctx.moveTo(bx + r, by);
+          ctx.lineTo(x2 - r, by);
+          ctx.quadraticCurveTo(x2, by, x2, by + r);
+          ctx.lineTo(x2, y2 - r);
+          ctx.quadraticCurveTo(x2, y2, x2 - r, y2);
+          ctx.lineTo(bx + r, y2);
+          ctx.quadraticCurveTo(bx, y2, bx, y2 - r);
+          ctx.lineTo(bx, by + r);
+          ctx.quadraticCurveTo(bx, by, bx + r, by);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillRect(bx, by, bw, bh);
+        }
+      }
+      const bwid = Math.max(0, Number(c.borderWidth) || 0);
+      const bopa = Math.max(0, Math.min(1, Number(c.borderOpa)));
+      if (bwid > 0 && bopa > 0) {
+        ctx.lineWidth = bwid;
+        ctx.strokeStyle = rgba(c.borderColor || '#ffffff', bopa);
+        const rr = shape === 'pill' ? bh / 2 : Math.max(0, Number(c.borderRadius ?? c.bgRadius) || 0);
+        if (rr > 0) {
+          ctx.beginPath();
+          const r = rr;
+          const x2 = bx + bw;
+          const y2 = by + bh;
+          ctx.moveTo(bx + r, by);
+          ctx.lineTo(x2 - r, by);
+          ctx.quadraticCurveTo(x2, by, x2, by + r);
+          ctx.lineTo(x2, y2 - r);
+          ctx.quadraticCurveTo(x2, y2, x2 - r, y2);
+          ctx.lineTo(bx + r, y2);
+          ctx.quadraticCurveTo(bx, y2, bx, y2 - r);
+          ctx.lineTo(bx, by + r);
+          ctx.quadraticCurveTo(bx, by, bx + r, by);
+          ctx.closePath();
+          ctx.stroke();
+        } else {
+          ctx.strokeRect(bx, by, bw, bh);
+        }
+      }
+      ctx.fillStyle = textColor;
+      ctx.fillText(text, x, y);
       ctx.textAlign = 'start';
     }
     async ensureLogo() {
@@ -1740,6 +2023,7 @@
       this.clear();
       this.drawBackground();
       this.drawTicker(dt);
+      this.drawNowLive(dt);
       this.drawClock();
       this.drawLogo();
       this.drawLowerThird();
@@ -1769,10 +2053,34 @@
         speed: Number(el.ovTickerSpeed?.value || 120),
         font: el.ovTickerFont?.value || 'Segoe UI',
         size: Number(el.ovTickerSize?.value || 24),
+        bold: !!el.ovTickerBold?.checked,
         color: el.ovTickerColor?.value || '#ffffff',
         pos: el.ovTickerPos?.value || 'bottom',
+        y: Number(el.ovTickerY?.value || overlay.state.ticker.y),
         bg: el.ovTickerBg?.value || '#000000',
+        bg2: el.ovTickerBg2?.value || overlay.state.ticker.bg2 || '#000000',
+        bgMode: el.ovTickerBgMode?.value || overlay.state.ticker.bgMode || 'solid',
         opa: Number(el.ovTickerOpa?.value || 0.4),
+        borderWidth: Number(el.ovTickerBorderWidth?.value || overlay.state.ticker.borderWidth || 0),
+        borderColor: el.ovTickerBorderColor?.value || overlay.state.ticker.borderColor || '#ffffff',
+        borderOpa: Number(el.ovTickerBorderOpa?.value || overlay.state.ticker.borderOpa || 1),
+        borderRadius: Number(el.ovTickerBorderRadius?.value || overlay.state.ticker.borderRadius || 0),
+      });
+    };
+    const syncNowLive = () => {
+      overlay.updateNowLive({
+        show: !!el.ovNlShow?.checked,
+        text: el.ovNlText?.value || overlay.state.nowLive.text,
+        items: el.ovNlItems?.value || overlay.state.nowLive.items,
+        pos: el.ovNlPos?.value || overlay.state.nowLive.pos,
+        y: Number(el.ovNlY?.value || overlay.state.nowLive.y || 0),
+        labelBg: el.ovNlLabelBg?.value || overlay.state.nowLive.labelBg,
+        labelOpa: Number(el.ovNlLabelOpa?.value || overlay.state.nowLive.labelOpa),
+        labelColor: el.ovNlLabelColor?.value || overlay.state.nowLive.labelColor,
+        itemColor: el.ovNlItemColor?.value || overlay.state.nowLive.itemColor,
+        labelSize: Number(el.ovNlLabelSize?.value || overlay.state.nowLive.labelSize),
+        itemSize: Number(el.ovNlItemSize?.value || overlay.state.nowLive.itemSize),
+        anim: el.ovNlAnim?.value || overlay.state.nowLive.anim,
       });
     };
     const syncClock = () => {
@@ -1780,8 +2088,23 @@
         enable: !!el.ovClockEnable?.checked,
         format: el.ovClockFormat?.value || '24',
         showDate: !!el.ovClockDate?.checked,
+        showSeconds: !!el.ovClockSeconds?.checked,
         color: el.ovClockColor?.value || '#ffffff',
         size: Number(el.ovClockSize?.value || 20),
+        x: Number(el.ovClockX?.value || overlay.state.clock.x),
+        y: Number(el.ovClockY?.value || overlay.state.clock.y),
+        font: el.ovClockFont?.value || overlay.state.clock.font,
+        bold: !!el.ovClockBold?.checked,
+        bgEnable: !!el.ovClockBgEnable?.checked,
+        bgColor: el.ovClockBg?.value || overlay.state.clock.bgColor,
+        bgOpa: Number(el.ovClockBgOpa?.value || overlay.state.clock.bgOpa),
+        bgPad: Number(el.ovClockBgPad?.value || overlay.state.clock.bgPad),
+        bgShape: el.ovClockBgShape?.value || overlay.state.clock.bgShape,
+        bgRadius: Number(el.ovClockBgRadius?.value || overlay.state.clock.bgRadius),
+        borderWidth: Number(el.ovClockBorderWidth?.value || overlay.state.clock.borderWidth || 0),
+        borderColor: el.ovClockBorderColor?.value || overlay.state.clock.borderColor || '#ffffff',
+        borderOpa: Number(el.ovClockBorderOpa?.value || overlay.state.clock.borderOpa || 1),
+        borderRadius: Number(el.ovClockBorderRadius?.value || overlay.state.clock.borderRadius || overlay.state.clock.bgRadius || 0),
       });
     };
     const syncLogo = () => {
@@ -1813,24 +2136,133 @@
         text: el.ovBannerText?.value || '',
       });
     };
-    const syncAll = () => { syncBase(); syncTicker(); syncClock(); syncLogo(); syncLowerThird(); syncScoreboard(); syncBanner(); };
+    const syncAll = () => { syncBase(); syncTicker(); syncNowLive(); syncClock(); syncLogo(); syncLowerThird(); syncScoreboard(); syncBanner(); };
     const handlers = [
       el.ovWidth, el.ovHeight, el.ovScale, el.ovBg, el.ovBgOpa,
-      el.ovTickerText, el.ovTickerSpeed, el.ovTickerFont, el.ovTickerSize, el.ovTickerColor, el.ovTickerPos, el.ovTickerBg, el.ovTickerOpa,
-      el.ovClockEnable, el.ovClockFormat, el.ovClockDate, el.ovClockColor, el.ovClockSize,
+      el.ovTickerText, el.ovTickerSpeed, el.ovTickerFont, el.ovTickerSize, el.ovTickerBold, el.ovTickerColor, el.ovTickerPos, el.ovTickerBg, el.ovTickerBgMode, el.ovTickerBg2, el.ovTickerOpa,
+      el.ovTickerBorderWidth, el.ovTickerBorderColor, el.ovTickerBorderOpa, el.ovTickerBorderRadius,
+      el.ovTickerY,
+      el.ovNlShow, el.ovNlText, el.ovNlItems, el.ovNlPos, el.ovNlY, el.ovNlLabelBg, el.ovNlLabelOpa, el.ovNlLabelColor, el.ovNlItemColor, el.ovNlLabelSize, el.ovNlItemSize, el.ovNlAnim,
+      el.ovClockEnable, el.ovClockFormat, el.ovClockDate, el.ovClockSeconds, el.ovClockColor, el.ovClockSize,
+      el.ovClockX, el.ovClockY,
+      el.ovClockFont, el.ovClockBold,
+      el.ovClockBgEnable, el.ovClockBg, el.ovClockBgOpa, el.ovClockBgPad, el.ovClockBgShape, el.ovClockBgRadius,
+      el.ovClockBorderWidth, el.ovClockBorderColor, el.ovClockBorderOpa, el.ovClockBorderRadius,
       el.ovLogoUrl, el.ovLogoPos, el.ovLogoSize, el.ovLogoOpa,
       el.ovLtTitle, el.ovLtSub, el.ovLtShow,
       el.ovScoreA, el.ovScoreB, el.ovScoreAVal, el.ovScoreBVal,
       el.ovBannerText, el.ovBannerShow
     ].filter(Boolean);
     handlers.forEach((node) => {
-      const ev = node.type === 'checkbox' ? 'change' : 'input';
+      const isSelect = String(node.tagName || '').toLowerCase() === 'select';
+      const ev = (node.type === 'checkbox' || isSelect) ? 'change' : 'input';
       node.addEventListener(ev, () => {
         syncAll();
         maybePush();
       });
     });
+    function updateTickerYEnabled() {
+      if (el.ovTickerY) { el.ovTickerY.disabled = false; el.ovTickerY.parentElement?.classList.remove('disabled'); }
+    }
+    function updateTickerBgInputsEnabled() {
+      const mode = (el.ovTickerBgMode?.value || 'solid');
+      const enabled = mode !== 'solid';
+      if (el.ovTickerBg2) { el.ovTickerBg2.disabled = !enabled; el.ovTickerBg2.parentElement?.classList.toggle('disabled', !enabled); }
+    }
+    if (el.ovTickerPos) {
+      el.ovTickerPos.addEventListener('change', () => {
+        updateTickerYEnabled();
+        syncAll();
+        maybePush();
+      });
+    }
+    if (el.ovTickerBgMode) {
+      el.ovTickerBgMode.addEventListener('change', () => {
+        updateTickerBgInputsEnabled();
+        syncAll();
+        maybePush();
+      });
+    }
+    function updateNowLiveYEnabled() {
+      const mode = (el.ovNlPos?.value || 'tl');
+      const enabled = mode === 'custom' || mode.includes('t') || mode.includes('b');
+      if (el.ovNlY) { el.ovNlY.disabled = !enabled; el.ovNlY.parentElement?.classList.toggle('disabled', !enabled); }
+    }
+    if (el.ovNlPos) {
+      el.ovNlPos.addEventListener('change', () => {
+        updateNowLiveYEnabled();
+        syncAll();
+        maybePush();
+      });
+    }
     syncAll();
+    updateTickerYEnabled();
+    updateTickerBgInputsEnabled();
+    updateNowLiveYEnabled();
+    let draggingClock = false;
+    let dragDX = 0;
+    let dragDY = 0;
+    function getMouse(ev) {
+      const r = el.ovCanvas.getBoundingClientRect();
+      const sx = el.ovCanvas.width / r.width;
+      const sy = el.ovCanvas.height / r.height;
+      return { x: (ev.clientX - r.left) * sx, y: (ev.clientY - r.top) * sy };
+    }
+    function clockRect() {
+      if (!overlay || !overlay.ctx) return null;
+      const c = overlay.state.clock;
+      if (!c.enable) return null;
+      const size = Math.max(10, Number(c.size) || 20);
+      overlay.ctx.font = `${size}px Segoe UI, sans-serif`;
+      const d = new Date();
+      const hh = d.getHours();
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      const h12 = ((hh + 11) % 12) + 1;
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      const time = c.format === '12' ? `${h12}:${mm}:${ss} ${ampm}` : `${String(hh).padStart(2,'0')}:${mm}:${ss}`;
+      const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const text = c.showDate ? `${date} ${time}` : time;
+      const w = overlay.ctx.measureText(text).width;
+      const h = size + 10;
+      const x = Number.isFinite(c.x) ? c.x : (el.ovCanvas.width / 2);
+      const y = Number.isFinite(c.y) ? c.y : 8;
+      return { x: x - w / 2, y, w, h };
+    }
+    el.ovCanvas.addEventListener('mousedown', (ev) => {
+      const cr = clockRect();
+      if (!cr) return;
+      const m = getMouse(ev);
+      if (m.x >= cr.x && m.x <= cr.x + cr.w && m.y >= cr.y && m.y <= cr.y + cr.h) {
+        draggingClock = true;
+        const cx = Number.isFinite(overlay.state.clock.x) ? overlay.state.clock.x : (el.ovCanvas.width / 2);
+        const cy = Number.isFinite(overlay.state.clock.y) ? overlay.state.clock.y : 8;
+        dragDX = m.x - cx;
+        dragDY = m.y - cy;
+      }
+    });
+    window.addEventListener('mousemove', (ev) => {
+      if (!draggingClock) return;
+      const m = getMouse(ev);
+      const cr = clockRect();
+      const w = cr ? cr.w : 0;
+      const h = cr ? cr.h : 0;
+      let nx = m.x - dragDX;
+      let ny = m.y - dragDY;
+      const minX = w / 2;
+      const maxX = el.ovCanvas.width - w / 2;
+      const minY = 0;
+      const maxY = el.ovCanvas.height - h;
+      if (nx < minX) nx = minX;
+      if (nx > maxX) nx = maxX;
+      if (ny < minY) ny = minY;
+      if (ny > maxY) ny = maxY;
+      overlay.updateClock({ x: nx, y: ny });
+      if (el.ovClockX) el.ovClockX.value = String(nx);
+      if (el.ovClockY) el.ovClockY.value = String(ny);
+      maybePush();
+    });
+    window.addEventListener('mouseup', () => { draggingClock = false; });
     if (el.ovStart) {
       el.ovStart.addEventListener('click', (e) => {
         e.preventDefault();
@@ -1860,15 +2292,45 @@
         if (el.ovTickerSpeed) el.ovTickerSpeed.value = String(overlay.state.ticker.speed);
         if (el.ovTickerFont) el.ovTickerFont.value = String(overlay.state.ticker.font);
         if (el.ovTickerSize) el.ovTickerSize.value = String(overlay.state.ticker.size);
+        if (el.ovTickerBold) el.ovTickerBold.checked = !!overlay.state.ticker.bold;
         if (el.ovTickerColor) el.ovTickerColor.value = String(overlay.state.ticker.color);
         if (el.ovTickerPos) el.ovTickerPos.value = String(overlay.state.ticker.pos);
+        if (el.ovTickerBgMode) el.ovTickerBgMode.value = String(overlay.state.ticker.bgMode);
+        if (el.ovTickerY) el.ovTickerY.value = String(overlay.state.ticker.y ?? '');
         if (el.ovTickerBg) el.ovTickerBg.value = String(overlay.state.ticker.bg);
+        if (el.ovTickerBg2) el.ovTickerBg2.value = String(overlay.state.ticker.bg2);
         if (el.ovTickerOpa) el.ovTickerOpa.value = String(overlay.state.ticker.opa);
+        if (el.ovTickerBorderWidth) el.ovTickerBorderWidth.value = String(overlay.state.ticker.borderWidth);
+        if (el.ovTickerBorderColor) el.ovTickerBorderColor.value = String(overlay.state.ticker.borderColor);
+        if (el.ovTickerBorderOpa) el.ovTickerBorderOpa.value = String(overlay.state.ticker.borderOpa);
+        if (el.ovTickerBorderRadius) el.ovTickerBorderRadius.value = String(overlay.state.ticker.borderRadius);
+        if (el.ovNlShow) el.ovNlShow.checked = !!overlay.state.nowLive.show;
+        if (el.ovNlText) el.ovNlText.value = String(overlay.state.nowLive.text);
+        if (el.ovNlItems) el.ovNlItems.value = String(overlay.state.nowLive.items);
+        if (el.ovNlPos) el.ovNlPos.value = String(overlay.state.nowLive.pos);
+        if (el.ovNlY) el.ovNlY.value = String(overlay.state.nowLive.y);
+        if (el.ovNlLabelBg) el.ovNlLabelBg.value = String(overlay.state.nowLive.labelBg);
+        if (el.ovNlLabelOpa) el.ovNlLabelOpa.value = String(overlay.state.nowLive.labelOpa);
+        if (el.ovNlLabelColor) el.ovNlLabelColor.value = String(overlay.state.nowLive.labelColor);
+        if (el.ovNlItemColor) el.ovNlItemColor.value = String(overlay.state.nowLive.itemColor);
+        if (el.ovNlLabelSize) el.ovNlLabelSize.value = String(overlay.state.nowLive.labelSize);
+        if (el.ovNlItemSize) el.ovNlItemSize.value = String(overlay.state.nowLive.itemSize);
+        if (el.ovNlAnim) el.ovNlAnim.value = String(overlay.state.nowLive.anim);
         if (el.ovClockEnable) el.ovClockEnable.checked = !!overlay.state.clock.enable;
         if (el.ovClockFormat) el.ovClockFormat.value = String(overlay.state.clock.format);
         if (el.ovClockDate) el.ovClockDate.checked = !!overlay.state.clock.showDate;
         if (el.ovClockColor) el.ovClockColor.value = String(overlay.state.clock.color);
         if (el.ovClockSize) el.ovClockSize.value = String(overlay.state.clock.size);
+        if (el.ovClockX) el.ovClockX.value = String(overlay.state.clock.x);
+        if (el.ovClockY) el.ovClockY.value = String(overlay.state.clock.y);
+        if (el.ovClockFont) el.ovClockFont.value = String(overlay.state.clock.font);
+        if (el.ovClockBold) el.ovClockBold.checked = !!overlay.state.clock.bold;
+        if (el.ovClockBgEnable) el.ovClockBgEnable.checked = !!overlay.state.clock.bgEnable;
+        if (el.ovClockBg) el.ovClockBg.value = String(overlay.state.clock.bgColor);
+        if (el.ovClockBgOpa) el.ovClockBgOpa.value = String(overlay.state.clock.bgOpa);
+        if (el.ovClockBgPad) el.ovClockBgPad.value = String(overlay.state.clock.bgPad);
+        if (el.ovClockBgShape) el.ovClockBgShape.value = String(overlay.state.clock.bgShape);
+        if (el.ovClockBgRadius) el.ovClockBgRadius.value = String(overlay.state.clock.bgRadius);
         if (el.ovLogoUrl) el.ovLogoUrl.value = String(overlay.state.logo.url);
         if (el.ovLogoPos) el.ovLogoPos.value = String(overlay.state.logo.pos);
         if (el.ovLogoSize) el.ovLogoSize.value = String(overlay.state.logo.size);
@@ -1904,6 +2366,7 @@
           overlay.update(st);
           overlay.updateTicker(st.ticker || {});
           overlay.updateClock(st.clock || {});
+          overlay.updateNowLive(st.nowLive || {});
           overlay.updateLogo(st.logo || {});
           overlay.updateLowerThird(st.lowerThird || {});
           overlay.updateScoreboard(st.scoreboard || {});
@@ -1917,15 +2380,49 @@
           if (el.ovTickerSpeed) el.ovTickerSpeed.value = String((st.ticker && st.ticker.speed) || 120);
           if (el.ovTickerFont) el.ovTickerFont.value = String((st.ticker && st.ticker.font) || 'Segoe UI');
           if (el.ovTickerSize) el.ovTickerSize.value = String((st.ticker && st.ticker.size) || 24);
+          if (el.ovTickerBold) el.ovTickerBold.checked = !!(st.ticker && st.ticker.bold);
           if (el.ovTickerColor) el.ovTickerColor.value = String((st.ticker && st.ticker.color) || '#ffffff');
           if (el.ovTickerPos) el.ovTickerPos.value = String((st.ticker && st.ticker.pos) || 'bottom');
+          if (el.ovTickerBgMode) el.ovTickerBgMode.value = String((st.ticker && st.ticker.bgMode) || overlay.state.ticker.bgMode);
           if (el.ovTickerBg) el.ovTickerBg.value = String((st.ticker && st.ticker.bg) || '#000000');
+          if (el.ovTickerBg2) el.ovTickerBg2.value = String((st.ticker && st.ticker.bg2) || overlay.state.ticker.bg2);
           if (el.ovTickerOpa) el.ovTickerOpa.value = String((st.ticker && st.ticker.opa) || 0.4);
-          if (el.ovClockEnable) el.ovClockEnable.checked = !!(st.clock && st.clock.enable);
-          if (el.ovClockFormat) el.ovClockFormat.value = String((st.clock && st.clock.format) || '24');
-          if (el.ovClockDate) el.ovClockDate.checked = !!(st.clock && st.clock.showDate);
-          if (el.ovClockColor) el.ovClockColor.value = String((st.clock && st.clock.color) || '#ffffff');
-          if (el.ovClockSize) el.ovClockSize.value = String((st.clock && st.clock.size) || 20);
+          if (el.ovTickerBorderWidth) el.ovTickerBorderWidth.value = String((st.ticker && st.ticker.borderWidth) || overlay.state.ticker.borderWidth);
+          if (el.ovTickerBorderColor) el.ovTickerBorderColor.value = String((st.ticker && st.ticker.borderColor) || overlay.state.ticker.borderColor);
+          if (el.ovTickerBorderOpa) el.ovTickerBorderOpa.value = String((st.ticker && st.ticker.borderOpa) || overlay.state.ticker.borderOpa);
+          if (el.ovTickerBorderRadius) el.ovTickerBorderRadius.value = String((st.ticker && st.ticker.borderRadius) || overlay.state.ticker.borderRadius);
+          if (el.ovNlShow) el.ovNlShow.checked = !!(st.nowLive && st.nowLive.show);
+          if (el.ovNlText) el.ovNlText.value = String((st.nowLive && st.nowLive.text) || overlay.state.nowLive.text);
+          if (el.ovNlItems) el.ovNlItems.value = String((st.nowLive && st.nowLive.items) || overlay.state.nowLive.items);
+          if (el.ovNlPos) el.ovNlPos.value = String((st.nowLive && st.nowLive.pos) || overlay.state.nowLive.pos);
+          if (el.ovNlY) el.ovNlY.value = String((st.nowLive && st.nowLive.y) || overlay.state.nowLive.y);
+          if (el.ovNlLabelBg) el.ovNlLabelBg.value = String((st.nowLive && st.nowLive.labelBg) || overlay.state.nowLive.labelBg);
+          if (el.ovNlLabelOpa) el.ovNlLabelOpa.value = String((st.nowLive && st.nowLive.labelOpa) || overlay.state.nowLive.labelOpa);
+          if (el.ovNlLabelColor) el.ovNlLabelColor.value = String((st.nowLive && st.nowLive.labelColor) || overlay.state.nowLive.labelColor);
+          if (el.ovNlItemColor) el.ovNlItemColor.value = String((st.nowLive && st.nowLive.itemColor) || overlay.state.nowLive.itemColor);
+          if (el.ovNlLabelSize) el.ovNlLabelSize.value = String((st.nowLive && st.nowLive.labelSize) || overlay.state.nowLive.labelSize);
+          if (el.ovNlItemSize) el.ovNlItemSize.value = String((st.nowLive && st.nowLive.itemSize) || overlay.state.nowLive.itemSize);
+          if (el.ovNlAnim) el.ovNlAnim.value = String((st.nowLive && st.nowLive.anim) || overlay.state.nowLive.anim);
+        if (el.ovClockEnable) el.ovClockEnable.checked = !!(st.clock && st.clock.enable);
+        if (el.ovClockFormat) el.ovClockFormat.value = String((st.clock && st.clock.format) || '24');
+        if (el.ovClockDate) el.ovClockDate.checked = !!(st.clock && st.clock.showDate);
+        if (el.ovClockSeconds) el.ovClockSeconds.checked = !!(st.clock && st.clock.showSeconds);
+        if (el.ovClockColor) el.ovClockColor.value = String((st.clock && st.clock.color) || '#ffffff');
+        if (el.ovClockSize) el.ovClockSize.value = String((st.clock && st.clock.size) || 20);
+        if (el.ovClockX) el.ovClockX.value = String((st.clock && st.clock.x) || overlay.state.clock.x);
+        if (el.ovClockY) el.ovClockY.value = String((st.clock && st.clock.y) || overlay.state.clock.y);
+        if (el.ovClockFont) el.ovClockFont.value = String((st.clock && st.clock.font) || overlay.state.clock.font);
+        if (el.ovClockBold) el.ovClockBold.checked = !!(st.clock && st.clock.bold);
+        if (el.ovClockBgEnable) el.ovClockBgEnable.checked = !!(st.clock && st.clock.bgEnable);
+        if (el.ovClockBg) el.ovClockBg.value = String((st.clock && st.clock.bgColor) || overlay.state.clock.bgColor);
+        if (el.ovClockBgOpa) el.ovClockBgOpa.value = String((st.clock && st.clock.bgOpa) || overlay.state.clock.bgOpa);
+        if (el.ovClockBgPad) el.ovClockBgPad.value = String((st.clock && st.clock.bgPad) || overlay.state.clock.bgPad);
+        if (el.ovClockBgShape) el.ovClockBgShape.value = String((st.clock && st.clock.bgShape) || overlay.state.clock.bgShape);
+        if (el.ovClockBgRadius) el.ovClockBgRadius.value = String((st.clock && st.clock.bgRadius) || overlay.state.clock.bgRadius);
+        if (el.ovClockBorderWidth) el.ovClockBorderWidth.value = String((st.clock && st.clock.borderWidth) || overlay.state.clock.borderWidth);
+        if (el.ovClockBorderColor) el.ovClockBorderColor.value = String((st.clock && st.clock.borderColor) || overlay.state.clock.borderColor);
+        if (el.ovClockBorderOpa) el.ovClockBorderOpa.value = String((st.clock && st.clock.borderOpa) || overlay.state.clock.borderOpa);
+        if (el.ovClockBorderRadius) el.ovClockBorderRadius.value = String((st.clock && st.clock.borderRadius) || overlay.state.clock.borderRadius);
           if (el.ovLogoUrl) el.ovLogoUrl.value = String((st.logo && st.logo.url) || '');
           if (el.ovLogoPos) el.ovLogoPos.value = String((st.logo && st.logo.pos) || 'tr');
           if (el.ovLogoSize) el.ovLogoSize.value = String((st.logo && st.logo.size) || 80);
@@ -1968,6 +2465,7 @@
             overlay.update(data || {});
             overlay.updateTicker((data && data.ticker) || {});
             overlay.updateClock((data && data.clock) || {});
+            overlay.updateNowLive((data && data.nowLive) || {});
             overlay.updateLogo((data && data.logo) || {});
             overlay.updateLowerThird((data && data.lowerThird) || {});
             overlay.updateScoreboard((data && data.scoreboard) || {});
@@ -1981,15 +2479,37 @@
             if (el.ovTickerSpeed && data.ticker && typeof data.ticker.speed !== 'undefined') el.ovTickerSpeed.value = String(data.ticker.speed);
             if (el.ovTickerFont && data.ticker && typeof data.ticker.font === 'string') el.ovTickerFont.value = String(data.ticker.font);
             if (el.ovTickerSize && data.ticker && typeof data.ticker.size !== 'undefined') el.ovTickerSize.value = String(data.ticker.size);
+            if (el.ovTickerBold && data.ticker && typeof data.ticker.bold !== 'undefined') el.ovTickerBold.checked = !!data.ticker.bold;
             if (el.ovTickerColor && data.ticker && typeof data.ticker.color === 'string') el.ovTickerColor.value = String(data.ticker.color);
             if (el.ovTickerPos && data.ticker && typeof data.ticker.pos === 'string') el.ovTickerPos.value = String(data.ticker.pos);
+            if (el.ovTickerBgMode && data.ticker && typeof data.ticker.bgMode === 'string') el.ovTickerBgMode.value = String(data.ticker.bgMode);
             if (el.ovTickerBg && data.ticker && typeof data.ticker.bg === 'string') el.ovTickerBg.value = String(data.ticker.bg);
+            if (el.ovTickerBg2 && data.ticker && typeof data.ticker.bg2 === 'string') el.ovTickerBg2.value = String(data.ticker.bg2);
+            if (el.ovTickerBorderWidth && data.ticker && typeof data.ticker.borderWidth !== 'undefined') el.ovTickerBorderWidth.value = String(data.ticker.borderWidth);
+            if (el.ovTickerBorderColor && data.ticker && typeof data.ticker.borderColor === 'string') el.ovTickerBorderColor.value = String(data.ticker.borderColor);
+            if (el.ovTickerBorderOpa && data.ticker && typeof data.ticker.borderOpa !== 'undefined') el.ovTickerBorderOpa.value = String(data.ticker.borderOpa);
+            if (el.ovTickerBorderRadius && data.ticker && typeof data.ticker.borderRadius !== 'undefined') el.ovTickerBorderRadius.value = String(data.ticker.borderRadius);
             if (el.ovTickerOpa && data.ticker && typeof data.ticker.opa !== 'undefined') el.ovTickerOpa.value = String(data.ticker.opa);
             if (el.ovClockEnable && data.clock && typeof data.clock.enable !== 'undefined') el.ovClockEnable.checked = !!data.clock.enable;
             if (el.ovClockFormat && data.clock && typeof data.clock.format === 'string') el.ovClockFormat.value = String(data.clock.format);
             if (el.ovClockDate && data.clock && typeof data.clock.showDate !== 'undefined') el.ovClockDate.checked = !!data.clock.showDate;
             if (el.ovClockColor && data.clock && typeof data.clock.color === 'string') el.ovClockColor.value = String(data.clock.color);
+            if (el.ovClockSeconds && data.clock && typeof data.clock.showSeconds !== 'undefined') el.ovClockSeconds.checked = !!data.clock.showSeconds;
             if (el.ovClockSize && data.clock && typeof data.clock.size !== 'undefined') el.ovClockSize.value = String(data.clock.size);
+            if (el.ovClockX && data.clock && typeof data.clock.x !== 'undefined') el.ovClockX.value = String(data.clock.x);
+            if (el.ovClockY && data.clock && typeof data.clock.y !== 'undefined') el.ovClockY.value = String(data.clock.y);
+            if (el.ovClockFont && data.clock && typeof data.clock.font === 'string') el.ovClockFont.value = String(data.clock.font);
+            if (el.ovClockBold && data.clock && typeof data.clock.bold !== 'undefined') el.ovClockBold.checked = !!data.clock.bold;
+            if (el.ovClockBgEnable && data.clock && typeof data.clock.bgEnable !== 'undefined') el.ovClockBgEnable.checked = !!data.clock.bgEnable;
+            if (el.ovClockBg && data.clock && typeof data.clock.bgColor === 'string') el.ovClockBg.value = String(data.clock.bgColor);
+            if (el.ovClockBgOpa && data.clock && typeof data.clock.bgOpa !== 'undefined') el.ovClockBgOpa.value = String(data.clock.bgOpa);
+            if (el.ovClockBgPad && data.clock && typeof data.clock.bgPad !== 'undefined') el.ovClockBgPad.value = String(data.clock.bgPad);
+            if (el.ovClockBgShape && data.clock && typeof data.clock.bgShape === 'string') el.ovClockBgShape.value = String(data.clock.bgShape);
+            if (el.ovClockBgRadius && data.clock && typeof data.clock.bgRadius !== 'undefined') el.ovClockBgRadius.value = String(data.clock.bgRadius);
+            if (el.ovClockBorderWidth && data.clock && typeof data.clock.borderWidth !== 'undefined') el.ovClockBorderWidth.value = String(data.clock.borderWidth);
+            if (el.ovClockBorderColor && data.clock && typeof data.clock.borderColor === 'string') el.ovClockBorderColor.value = String(data.clock.borderColor);
+            if (el.ovClockBorderOpa && data.clock && typeof data.clock.borderOpa !== 'undefined') el.ovClockBorderOpa.value = String(data.clock.borderOpa);
+            if (el.ovClockBorderRadius && data.clock && typeof data.clock.borderRadius !== 'undefined') el.ovClockBorderRadius.value = String(data.clock.borderRadius);
             if (el.ovLogoUrl && data.logo && typeof data.logo.url === 'string') el.ovLogoUrl.value = String(data.logo.url);
             if (el.ovLogoPos && data.logo && typeof data.logo.pos === 'string') el.ovLogoPos.value = String(data.logo.pos);
             if (el.ovLogoSize && data.logo && typeof data.logo.size !== 'undefined') el.ovLogoSize.value = String(data.logo.size);

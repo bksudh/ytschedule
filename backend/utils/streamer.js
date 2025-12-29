@@ -107,6 +107,72 @@ class Streamer {
   constructor() {
     this.activeStreams = new Map(); // videoId -> { command, startedAt, progress, lastUpdateMs, stopped, outputUrl }
     this.lastStreamErrors = new Map(); // id -> last error message
+    this.globalOverlay = {};
+  }
+
+  static hexToFFColor(hex, alpha = 1) {
+    const h = String(hex || '#000000').replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16) || 0;
+    const g = parseInt(h.substring(2, 4), 16) || 0;
+    const b = parseInt(h.substring(4, 6), 16) || 0;
+    const a = Math.max(0, Math.min(1, Number(alpha || 1)));
+    return `0x${h}@${a}`;
+  }
+
+  static buildNowLiveFilters(nl) {
+    if (!nl || !nl.show) return [];
+    const pos = String(nl.pos || 'tl');
+    const isLeft = pos.includes('l') || pos === 'custom';
+    const isTop = pos.includes('t') || pos === 'custom';
+    const xExpr = isLeft ? '8' : '(w-text_w-8)';
+    const yBase = Math.max(0, Number(nl.y) || 0);
+    const yExpr = isTop ? `(8+${yBase})` : `(h-text_h-8-${yBase})`;
+    const labelSize = Math.max(10, Number(nl.labelSize) || 18);
+    const labelColor = (nl.labelColor || '#ffffff');
+    const labelBg = Streamer.hexToFFColor(nl.labelBg || '#ff0000', Number(nl.labelOpa || 0.8));
+    const lines = String(nl.items || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const itemSize = Math.max(10, Number(nl.itemSize) || 16);
+    const itemColor = (nl.itemColor || '#ffffff');
+    const itemBg = Streamer.hexToFFColor('#000000', 0.25);
+    const tryFonts = [
+      'C:/Windows/Fonts/segoeui.ttf',
+      'C:/Windows/Fonts/arial.ttf',
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+      '/Library/Fonts/Arial.ttf',
+      '/System/Library/Fonts/Supplemental/Arial.ttf',
+    ];
+    let fontFile = null;
+    try {
+      for (const p of tryFonts) {
+        if (fs.existsSync(p)) { fontFile = p.replace(/\\/g, '/'); break; }
+      }
+    } catch (_) {}
+    const fontOpt = fontFile ? `:fontfile='${fontFile}'` : '';
+
+    const filters = [];
+    // Label with auto box
+    filters.push(`drawtext=text='${(nl.text || 'NOW LIVE').replace(/[:\\]/g, '\\$&')}':fontsize=${labelSize}:fontcolor=${Streamer.hexToFFColor(labelColor, 1)}:x=${xExpr}:y=${yExpr}:box=1:boxcolor=${labelBg}:boxborderw=0${fontOpt}`);
+    // Items stacked below/above
+    let gap = 2;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/[:\\]/g, '\\$&');
+      const yItemExpr = isTop ? `((${yExpr})+text_h+4+${i}*(${itemSize}+6))` : `((${yExpr})-${i}*(${itemSize}+6)-(${itemSize}+6))`;
+      filters.push(`drawtext=text='${line}':fontsize=${itemSize}:fontcolor=${Streamer.hexToFFColor(itemColor, 1)}:x=${xExpr}:y=${yItemExpr}:box=1:boxcolor=${itemBg}:boxborderw=0${fontOpt}`);
+    }
+    return filters;
+  }
+
+  static buildVfChain(baseScale, overlayConfig) {
+    const chain = [baseScale];
+    const nlFilters = Streamer.buildNowLiveFilters(overlayConfig && overlayConfig.nowLive);
+    chain.push(...nlFilters);
+    return chain.join(',');
+  }
+  setGlobalOverlay(overlay) {
+    this.globalOverlay = overlay || {};
+  }
+  getGlobalOverlay() {
+    return this.globalOverlay || {};
   }
 
   getAllActiveStreams() {
@@ -162,7 +228,7 @@ class Streamer {
       '-bufsize 6000k',
       '-g 60',
       '-pix_fmt yuv420p',
-      '-vf scale=1920:-2:force_original_aspect_ratio=decrease',
+      `-vf ${Streamer.buildVfChain('scale=1920:-2:force_original_aspect_ratio=decrease', opts.overlay || this.getGlobalOverlay())}`,
     ];
 
     const streamId = `url:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -218,14 +284,14 @@ class Streamer {
             } catch (_) {}
           }
 
-          command = ffmpeg(inputVal)
-            .inputOptions([...inputOpts, ...extraInputOpts])
-            .outputOptions(outputOpts)
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .audioBitrate('128k')
-            .format('flv')
-            .output(outUrl);
+      command = ffmpeg(inputVal)
+        .inputOptions([...inputOpts, ...extraInputOpts])
+        .outputOptions(outputOpts)
+        .videoCodec('libx264')
+        .audioCodec('aac')
+        .audioBitrate('128k')
+        .format('flv')
+        .output(outUrl);
 
           command
             .on('start', async (cmdLine) => {
@@ -411,8 +477,8 @@ class Streamer {
         '-bufsize 6000k',
         '-g 60',
         '-pix_fmt yuv420p',
-        // Scale down to 1080p if larger; otherwise keep aspect ratio
-        '-vf scale=1920:-2:force_original_aspect_ratio=decrease',
+        // Scale + overlay chain
+        `-vf ${Streamer.buildVfChain('scale=1920:-2:force_original_aspect_ratio=decrease', video.overlayConfig || {})}`,
       ])
       .format('flv')
       .output(outputUrl);
@@ -424,6 +490,7 @@ class Streamer {
             console.log(`[Streamer] FFmpeg started for video ${id}: ${cmdLine}`);
             video.status = 'streaming';
             video.streamStartedAt = new Date();
+            try { video.streamEndedAt = null; } catch (_) {}
             video.progress = 0;
             // Persist actual RTMP details used for this run
             video.usedRtmpUrl = useRtmpUrl;

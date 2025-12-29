@@ -93,8 +93,9 @@ img { max-width: 100%; display: block; }
 .main-nav {
   display: flex; gap: 10px; align-items: center;
   justify-content: center;
-  padding: 8px 0; background: transparent;
+  padding: 10px 0; background: transparent;
   overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap;
+  border-top: 1px solid rgba(0,0,0,0.04);
 }
 .main-nav .nav-link {
   appearance: none; border: none; cursor: pointer;
@@ -164,6 +165,50 @@ input::placeholder { color: #999; }
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-color: var(--color-info);
   box-shadow: 0 0 0 4px rgba(33,150,243,0.15);
+}
+.main-nav .nav-link { border: 1px solid transparent; }
+
+/* Dark theme readability improvements */
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input[type="datetime-local"],
+:root[data-theme="dark"] input[type="file"],
+:root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] input[type="search"],
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+  background: #111827;
+  border-color: rgba(255,255,255,0.14);
+  color: #E5E7EB;
+}
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: #9CA3AF;
+}
+:root[data-theme="dark"] input:focus-visible,
+:root[data-theme="dark"] textarea:focus-visible,
+:root[data-theme="dark"] select:focus-visible {
+  border-color: #93C5FD;
+  box-shadow: 0 0 0 4px rgba(147,197,253,0.28);
+}
+
+:root[data-theme="dark"] .main-nav .nav-link {
+  background: rgba(17,24,39,0.85);
+  color: #E5E7EB;
+  border-color: rgba(148,163,184,0.24);
+}
+:root[data-theme="dark"] .main-nav .nav-link.active {
+  background: var(--grad-primary);
+  color: #fff;
+  border-color: rgba(255,255,255,0.28);
+}
+
+:root[data-theme="dark"] .card::before {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+}
+
+:root[data-theme="dark"] .toast {
+  background: rgba(17,24,39,0.92);
+  color: #E5E7EB;
 }
 .form-actions { display: flex; gap: 12px; }
 
