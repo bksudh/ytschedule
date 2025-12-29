@@ -30,6 +30,7 @@
   const activeUploads = new Map();
   let refreshTimer = null;
   let isRefreshing = false;
+  const previewCache = new Map();
 
   /** Elements */
   const el = {
@@ -48,6 +49,12 @@
     filters: document.getElementById('filter-buttons'),
     search: document.getElementById('search-input'),
     form: document.getElementById('upload-form'),
+    useLibrarySource: document.getElementById('use-library-source'),
+    librarySourceRow: document.getElementById('library-source-row'),
+    librarySourceSelect: document.getElementById('library-source-select'),
+    libraryEmptyHint: document.getElementById('library-empty-hint'),
+    libraryPresentHint: document.getElementById('library-present-hint'),
+    goLibraryLink: document.getElementById('go-library-link'),
     message: document.getElementById('message'),
     progress: document.getElementById('upload-progress'),
     progressBar: document.getElementById('upload-progress-bar'),
@@ -78,6 +85,48 @@
     urlScheduleStop: document.getElementById('url-scheduleStop'),
     urlScheduleBtn: document.getElementById('url-schedule-btn'),
     urlCancelScheduleBtn: document.getElementById('url-cancel-schedule-btn'),
+    overlaySection: document.getElementById('section-overlay'),
+    ovCanvas: document.getElementById('overlay-canvas'),
+    ovWidth: document.getElementById('ov-width'),
+    ovHeight: document.getElementById('ov-height'),
+    ovScale: document.getElementById('ov-scale'),
+    ovBg: document.getElementById('ov-bg'),
+    ovBgOpa: document.getElementById('ov-bg-opa'),
+    ovTickerText: document.getElementById('ov-ticker-text'),
+    ovTickerSpeed: document.getElementById('ov-ticker-speed'),
+    ovTickerFont: document.getElementById('ov-ticker-font'),
+    ovTickerSize: document.getElementById('ov-ticker-size'),
+    ovTickerColor: document.getElementById('ov-ticker-color'),
+    ovTickerPos: document.getElementById('ov-ticker-pos'),
+    ovTickerBg: document.getElementById('ov-ticker-bg'),
+    ovTickerOpa: document.getElementById('ov-ticker-opa'),
+    ovClockEnable: document.getElementById('ov-clock-enable'),
+    ovClockFormat: document.getElementById('ov-clock-format'),
+    ovClockDate: document.getElementById('ov-clock-date'),
+    ovClockColor: document.getElementById('ov-clock-color'),
+    ovClockSize: document.getElementById('ov-clock-size'),
+    ovLogoUrl: document.getElementById('ov-logo-url'),
+    ovLogoPos: document.getElementById('ov-logo-pos'),
+    ovLogoSize: document.getElementById('ov-logo-size'),
+    ovLogoOpa: document.getElementById('ov-logo-opa'),
+    ovLtTitle: document.getElementById('ov-lt-title'),
+    ovLtSub: document.getElementById('ov-lt-sub'),
+    ovLtShow: document.getElementById('ov-lt-show'),
+    ovScoreA: document.getElementById('ov-score-a'),
+    ovScoreB: document.getElementById('ov-score-b'),
+    ovScoreAVal: document.getElementById('ov-score-a-val'),
+    ovScoreBVal: document.getElementById('ov-score-b-val'),
+    ovBannerText: document.getElementById('ov-banner-text'),
+    ovBannerShow: document.getElementById('ov-banner-show'),
+    ovStart: document.getElementById('ov-start'),
+    ovStop: document.getElementById('ov-stop'),
+    ovSave: document.getElementById('ov-save'),
+    ovLoad: document.getElementById('ov-load'),
+    ovReset: document.getElementById('ov-reset'),
+    ovMsg: document.getElementById('ov-message'),
+    ovTarget: document.getElementById('ov-target'),
+    ovConnect: document.getElementById('ov-connect'),
+    ovConnStatus: document.getElementById('ov-conn-status'),
   };
 
   /** Utilities */
@@ -198,13 +247,13 @@
   async function loadHealth() {
     try {
       const data = await fetchJSON(`${API_URL}/health`);
-      el.health.textContent = `${data.status} (db: ${data.db})`;
-      el.health.className = data.status === 'ok' ? 'ok' : 'warn';
+      el.health.textContent = data.status === 'ok' ? 'Connected' : (data.status || 'Unreachable');
+      el.health.className = data.status === 'ok' ? 'ok' : (data.status === 'warn' ? 'warn' : 'error');
       if (el.streamsCount && typeof data.streams === 'number') {
         el.streamsCount.textContent = String(data.streams);
       }
     } catch (err) {
-      el.health.textContent = 'unreachable';
+      el.health.textContent = 'Unreachable';
       el.health.className = 'error';
     }
   }
@@ -212,7 +261,7 @@
   /** Build status badge HTML */
   function renderBadge(status) {
     const map = {
-      [STATUS.LIBRARY]: { cls: 'badge badge--library', icon: 'fa-regular fa-folder', label: 'Library' },
+      [STATUS.LIBRARY]: { cls: 'badge badge--library', icon: 'fa-regular fa-folder', label: 'Uploaded' },
       [STATUS.SCHEDULED]: { cls: 'badge badge--scheduled', icon: 'fa-regular fa-clock', label: 'Scheduled' },
       [STATUS.STREAMING]: { cls: 'badge badge--streaming', icon: 'fa-solid fa-signal', label: 'Streaming' },
       [STATUS.COMPLETED]: { cls: 'badge badge--completed', icon: 'fa-regular fa-circle-check', label: 'Completed' },
@@ -221,6 +270,30 @@
     };
     const m = map[status] || map[STATUS.SCHEDULED];
     return `<span class="${m.cls}"><i class="${m.icon}"></i>${m.label}</span>`;
+  }
+
+  function renderSkeletonGrid(n) {
+    if (!el.grid) return;
+    el.grid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement('div');
+      s.className = 'skeleton-card';
+      frag.appendChild(s);
+    }
+    el.grid.appendChild(frag);
+  }
+
+  function renderActiveSkeleton(n) {
+    if (!el.activeStreamsList) return;
+    el.activeStreamsList.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement('div');
+      s.className = 'skeleton-card';
+      frag.appendChild(s);
+    }
+    el.activeStreamsList.appendChild(frag);
   }
 
   /** Active Streams UI */
@@ -278,6 +351,7 @@
   }
 
   async function loadActiveStreams() {
+    renderActiveSkeleton(3);
     try {
       const data = await fetchJSON(`${API_URL}/streams/active`);
       const items = Array.isArray(data && data.active) ? data.active : [];
@@ -333,14 +407,28 @@
     const progress = typeof video.progress === 'number' ? video.progress : 0;
     const status = video.status;
     const canStart = status === STATUS.SCHEDULED;
-    const canInstant = status === STATUS.LIBRARY;
+    const canInstant = [STATUS.LIBRARY, STATUS.COMPLETED, STATUS.FAILED, STATUS.CANCELLED].includes(status);
     const canStop = status === STATUS.STREAMING;
     const canDelete = [STATUS.COMPLETED, STATUS.FAILED, STATUS.CANCELLED].includes(status) || !canStop;
+    const thumb = video.thumbnailUrl || (`${API_URL}/videos/${id}/thumbnail`);
+    const statusTag = (s) => {
+      if (s === STATUS.STREAMING) return 'streaming';
+      if (s === STATUS.SCHEDULED) return 'scheduled';
+      if (s === STATUS.COMPLETED) return 'completed';
+      if (s === STATUS.FAILED) return 'failed';
+      if (s === STATUS.LIBRARY) return 'library';
+      return '';
+    };
 
     const card = document.createElement('div');
     card.className = 'card';
     card.dataset.id = id;
+    const label = (status === STATUS.LIBRARY) ? 'UPLOADED' : String(status).toUpperCase();
     card.innerHTML = `
+      <div class="thumb">
+        ${thumb ? `<img src="${escapeHtml(thumb)}" alt="">` : ``}
+        <span class="tag ${statusTag(status)}">${label}</span>
+      </div>
       <div class="card-head" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <h3 style="margin:0;">${escapeHtml(video.title || 'Untitled')}</h3>
@@ -368,12 +456,98 @@
         </div>
       </div>
     `;
+    const imgEl = card.querySelector('.thumb img');
+    const ensurePreview = async () => {
+      try {
+        if (previewCache.has(id)) {
+          const dataUrl = previewCache.get(id);
+          if (dataUrl) {
+            if (imgEl) { imgEl.src = dataUrl; imgEl.style.display = ''; }
+            else {
+              const ni = document.createElement('img');
+              ni.src = dataUrl;
+              ni.alt = '';
+              const container = card.querySelector('.thumb');
+              const tag = container.querySelector('.tag');
+              if (tag) container.insertBefore(ni, tag); else container.appendChild(ni);
+            }
+          }
+          return;
+        }
+        const dataUrl = await generateVideoPreview(id);
+        if (dataUrl) {
+          previewCache.set(id, dataUrl);
+          if (imgEl) { imgEl.src = dataUrl; imgEl.style.display = ''; }
+          else {
+            const ni = document.createElement('img');
+            ni.src = dataUrl;
+            ni.alt = '';
+            const container = card.querySelector('.thumb');
+            const tag = container.querySelector('.tag');
+            if (tag) container.insertBefore(ni, tag); else container.appendChild(ni);
+          }
+        }
+      } catch (_) {}
+    };
+    if (!imgEl) {
+      ensurePreview();
+    } else {
+      let loaded = false;
+      imgEl.addEventListener('load', () => { loaded = true; });
+      imgEl.addEventListener('error', () => { ensurePreview(); }, { once: true });
+      setTimeout(() => { if (!loaded || imgEl.naturalWidth === 0) ensurePreview(); }, 800);
+    }
     return card;
   }
 
   /** Escape HTML */
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+  async function generateVideoPreview(id) {
+    try {
+      const url = `${API_URL}/videos/${id}/file`;
+      return await new Promise((resolve) => {
+        const v = document.createElement('video');
+        v.src = url;
+        v.muted = true;
+        v.preload = 'auto';
+        v.playsInline = true;
+        const cleanup = () => { try { v.pause(); } catch (_) {} v.src = ''; v.remove(); };
+        const onSeeked = () => {
+          try {
+            const vw = v.videoWidth || 480;
+            const vh = v.videoHeight || 270;
+            const tw = 480;
+            const th = Math.max(1, Math.round(vh * (tw / vw)));
+            const c = document.createElement('canvas');
+            c.width = tw;
+            c.height = th;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(v, 0, 0, tw, th);
+            const data = c.toDataURL('image/jpeg', 0.85);
+            cleanup();
+            resolve(data);
+          } catch (_) {
+            cleanup();
+            resolve('');
+          }
+        };
+        v.addEventListener('loadeddata', () => {
+          try {
+            const t = Math.min(1, Number.isFinite(v.duration) ? v.duration : 1);
+            v.currentTime = t;
+            v.addEventListener('seeked', onSeeked, { once: true });
+          } catch (_) {
+            cleanup();
+            resolve('');
+          }
+        }, { once: true });
+        v.addEventListener('error', () => { cleanup(); resolve(''); }, { once: true });
+      });
+    } catch (_) {
+      return '';
+    }
   }
 
   /** Render videos into grid using diff updates */
@@ -419,6 +593,8 @@
 
   /** Load videos from API and apply filter/search */
   async function loadVideos() {
+    el.grid.setAttribute('aria-busy', 'true');
+    renderSkeletonGrid(6);
     try {
       const params = new URLSearchParams();
       params.set('limit', '100');
@@ -432,6 +608,8 @@
       videos = filtered;
       renderVideos(videos);
       renderPlaylistSelector();
+      renderLibrarySourceSelect();
+      renderOverlayTargets();
       el.grid.setAttribute('aria-busy', 'false');
     } catch (err) {
       showToast(`Unable to load videos: ${err.message}`, 'error');
@@ -465,6 +643,58 @@
       frag.appendChild(row);
     });
     el.playlistSelector.appendChild(frag);
+  }
+
+  /** Render library source select for scheduling from Library */
+  function renderLibrarySourceSelect() {
+    if (!el.librarySourceSelect) return;
+    // Preserve current selection
+    const prev = el.librarySourceSelect.value || '';
+    el.librarySourceSelect.innerHTML = '';
+    const optDefault = document.createElement('option');
+    optDefault.value = '';
+    optDefault.textContent = 'Select a Library video…';
+    el.librarySourceSelect.appendChild(optDefault);
+    const selectable = Array.isArray(videos) ? videos.filter(v => v.status === STATUS.LIBRARY) : [];
+    selectable.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v._id;
+      const sizeStr = typeof v.filesize === 'number' ? fmtBytes(v.filesize) : '';
+      const durStr = typeof v.duration === 'number' ? fmtDuration(v.duration) : '';
+      o.textContent = `${v.title || 'Untitled'} ${durStr ? '• ' + durStr : ''} ${sizeStr ? '• ' + sizeStr : ''}`;
+      el.librarySourceSelect.appendChild(o);
+    });
+    // Restore selection if still present
+    if (prev && selectable.some(v => v._id === prev)) {
+      el.librarySourceSelect.value = prev;
+    }
+    if (el.libraryEmptyHint && el.libraryPresentHint) {
+      const hasItems = selectable.length > 0;
+      el.libraryEmptyHint.hidden = hasItems;
+      el.libraryPresentHint.hidden = !hasItems;
+    }
+  }
+
+  function renderOverlayTargets() {
+    if (!el.ovTarget) return;
+    const prev = el.ovTarget.value || '';
+    el.ovTarget.innerHTML = '';
+    const optLive = document.createElement('option');
+    optLive.value = 'live';
+    optLive.textContent = 'Active Live (auto)';
+    el.ovTarget.appendChild(optLive);
+    const selectable = Array.isArray(videos) ? videos.filter(v => ['streaming','scheduled'].includes(v.status)) : [];
+    selectable.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v._id;
+      o.textContent = `${v.title || 'Untitled'} • ${v.status}`;
+      el.ovTarget.appendChild(o);
+    });
+    if (prev && (prev === 'live' || selectable.some(v => v._id === prev))) {
+      el.ovTarget.value = prev;
+    } else {
+      el.ovTarget.value = 'live';
+    }
   }
 
   /** Playlists: load & render */
@@ -577,6 +807,37 @@
   /** Upload with progress via XHR */
   function setupUpload() {
     if (!el.form) return;
+    // Toggle between Upload vs Library source
+    try {
+      const fileRow = el.form.querySelector('#file')?.closest('.form-row');
+      const titleInput = el.form.querySelector('input[name="title"]');
+      if (el.useLibrarySource) {
+        const applyToggle = () => {
+          const useLib = !!el.useLibrarySource.checked;
+          if (fileRow) fileRow.hidden = useLib;
+          if (el.librarySourceRow) el.librarySourceRow.hidden = !useLib;
+          const fileInput = el.form.querySelector('input[name="file"]');
+          if (fileInput) {
+            if (useLib) { fileInput.removeAttribute('required'); }
+            else { fileInput.setAttribute('required', ''); }
+            fileInput.value = '';
+          }
+          if (titleInput) {
+            titleInput.placeholder = useLib ? 'Use Library title or override' : ' ';
+          }
+          if (useLib && el.goLibraryLink) {
+            el.goLibraryLink.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              const btn = document.querySelector('.main-nav .nav-link[data-view="library"]');
+              if (btn) btn.click();
+            });
+          }
+        };
+        applyToggle();
+        el.useLibrarySource.addEventListener('change', applyToggle);
+      }
+    } catch (_) {}
+
     el.form.addEventListener('submit', (e) => {
       e.preventDefault();
       el.message.textContent = '';
@@ -588,6 +849,8 @@
       const keyInput = el.form.querySelector('input[name="streamKey"]');
       const loopInput = document.getElementById('loop');
 
+      const useLib = !!el.useLibrarySource?.checked;
+      const libId = el.librarySourceSelect?.value || '';
       const file = fileInput?.files?.[0];
       const title = titleInput?.value?.trim();
       const scheduleTime = schedInput?.value;
@@ -597,17 +860,21 @@
       const loop = !!loopInput?.checked;
 
       // Validation
-      if (!file) return setMessage('Please choose a video file.', 'error');
-      if (!/^video\//.test(file.type || 'video/')) return setMessage('File must be a video.', 'error');
-      const ext = String(file.name || '').split('.').pop()?.toLowerCase() || '';
-      if (ALLOWED_FORMATS.length && ext && !ALLOWED_FORMATS.includes(ext)) {
-        return setMessage(`Unsupported format. Allowed: ${ALLOWED_FORMATS.join(', ')}`, 'error');
+      if (useLib) {
+        if (!libId) return setMessage('Select a Library video.', 'error');
+      } else {
+        if (!file) return setMessage('Please choose a video file.', 'error');
+        if (!/^video\//.test(file.type || 'video/')) return setMessage('File must be a video.', 'error');
+        const ext = String(file.name || '').split('.').pop()?.toLowerCase() || '';
+        if (ALLOWED_FORMATS.length && ext && !ALLOWED_FORMATS.includes(ext)) {
+          return setMessage(`Unsupported format. Allowed: ${ALLOWED_FORMATS.join(', ')}`, 'error');
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          const gb = (MAX_FILE_SIZE / (1024 ** 3)).toFixed(0);
+          return setMessage(`File exceeds ${gb}GB limit.`, 'error');
+        }
+        if (!title) return setMessage('Title is required.', 'error');
       }
-      if (file.size > MAX_FILE_SIZE) {
-        const gb = (MAX_FILE_SIZE / (1024 ** 3)).toFixed(0);
-        return setMessage(`File exceeds ${gb}GB limit.`, 'error');
-      }
-      if (!title) return setMessage('Title is required.', 'error');
       if (!scheduleTime) return setMessage('Schedule date/time is required.', 'error');
       if (!rtmpUrl) return setMessage('RTMP URL is required.', 'error');
       if (!streamKey || streamKey.length < 16) return setMessage('Stream key must be at least 16 characters.', 'error');
@@ -623,53 +890,82 @@
       submitBtn.disabled = true;
       submitBtn.classList.add('loading');
 
-      const fd = new FormData();
-      fd.append('title', title);
-      // Backend expects /upload with field name 'video' and 'scheduleTime'
-      fd.append('video', file, file.name);
-      fd.append('scheduleTime', new Date(scheduleTime).toISOString());
-      if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
-      fd.append('rtmpUrl', rtmpUrl);
-      fd.append('streamKey', streamKey);
-      fd.append('loop', loop ? 'true' : 'false');
+      if (useLib) {
+        // Schedule existing Library video via PUT
+        const body = {
+          scheduleTime: new Date(scheduleTime).toISOString(),
+          rtmpUrl,
+          streamKey,
+          status: 'scheduled',
+          loop,
+        };
+        if (stopAt) body.stopTime = new Date(stopAt).toISOString();
+        if (title) body.title = title; // optional override
+        fetchJSON(`${API_URL}/videos/${libId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).then(() => {
+          showToast('Scheduled from Library', 'success');
+          el.form.reset();
+          // Keep toggle state ON to allow next scheduling; re-render select
+          el.useLibrarySource.checked = true;
+          loadVideos();
+        }).catch((err) => {
+          setMessage(err.message || 'Failed to schedule from Library.', 'error');
+        }).finally(() => {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove('loading');
+        });
+      } else {
+        // Upload flow as before
+        const fd = new FormData();
+        fd.append('title', title);
+        fd.append('video', file, file.name);
+        fd.append('scheduleTime', new Date(scheduleTime).toISOString());
+        if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
+        fd.append('rtmpUrl', rtmpUrl);
+        fd.append('streamKey', streamKey);
+        fd.append('loop', loop ? 'true' : 'false');
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${API_URL}/videos/upload`);
-      xhr.upload.onprogress = (ev) => {
-        if (!ev.lengthComputable) return;
-        const pct = Math.round((ev.loaded / ev.total) * 100);
-        el.progress.hidden = false;
-        el.progressBar.style.width = `${pct}%`;
-      };
-      xhr.onreadystatechange = () => {
-        if (xhr.readyState !== 4) return;
-        try {
-          const isOk = xhr.status >= 200 && xhr.status < 300;
-          const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
-          if (isOk) {
-            showToast('Upload successful', 'success');
-            el.form.reset();
-            loadVideos();
-          } else {
-            const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
-            setMessage(msg, 'error');
-            showToast('Upload failed', 'error');
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_URL}/videos/upload`);
+        xhr.upload.onprogress = (ev) => {
+          if (!ev.lengthComputable) return;
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          el.progress.hidden = false;
+          el.progressBar.style.width = `${pct}%`;
+        };
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState !== 4) return;
+          try {
+            const isOk = xhr.status >= 200 && xhr.status < 300;
+            const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
+            if (isOk) {
+              showToast('Upload successful', 'success');
+              el.form.reset();
+              loadVideos();
+            } else {
+              const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
+              setMessage(msg, 'error');
+              showToast('Upload failed', 'error');
+            }
+          } catch (e) {
+            setMessage('Unexpected response from server.', 'error');
           }
-        } catch (e) {
-          setMessage('Unexpected response from server.', 'error');
-        }
-      };
-      xhr.onerror = () => {
-        setMessage('Network error during upload.', 'error');
-        showToast('Network error', 'error');
-      };
-      xhr.onloadend = () => {
-        submitBtn.disabled = false;
-        submitBtn.classList.remove('loading');
-        el.progressBar.style.width = '0%';
-        el.progress.hidden = true;
-      };
-      xhr.send(fd);
+        };
+        xhr.onerror = () => {
+          setMessage('Network error during upload.', 'error');
+          showToast('Network error', 'error');
+        };
+        xhr.onloadend = () => {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove('loading');
+          el.progressBar.style.width = '0%';
+          el.progress.hidden = true;
+        };
+        xhr.send(fd);
+      }
     });
   }
 
@@ -953,6 +1249,7 @@
       const isLive = view === 'live';
       const isLibrary = view === 'library';
       const isActive = view === 'active';
+      const isOverlay = view === 'overlay';
 
       // Toggle sections
       if (el.sectionPlaylistForm) el.sectionPlaylistForm.hidden = !isPlaylist;
@@ -961,7 +1258,8 @@
       if (el.sectionActiveStreams) el.sectionActiveStreams.hidden = !(isLive || isActive);
       if (el.sectionUrlStream) el.sectionUrlStream.hidden = !(isLive);
       if (el.sectionLibraryUpload) el.sectionLibraryUpload.hidden = !isLibrary;
-      if (el.sectionVideos) el.sectionVideos.hidden = isPlaylist || isActive; // hide videos in active view
+      if (el.sectionVideos) el.sectionVideos.hidden = isPlaylist || isActive || isOverlay;
+      if (el.overlaySection) el.overlaySection.hidden = !isOverlay;
 
       // Set default filter per view
       if (isActive) {
@@ -985,8 +1283,8 @@
       showView(view);
     });
 
-    // Default view: live
-    showView('live');
+    // Default view: active
+    showView('active');
   }
 
   /** URL Stream form */
@@ -1175,6 +1473,585 @@
     if (urlStatusTimer) { clearInterval(urlStatusTimer); urlStatusTimer = null; }
   }
 
+  function rgba(hex, op) {
+    const h = String(hex || '#000000').replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16) || 0;
+    const g = parseInt(h.substring(2, 4), 16) || 0;
+    const b = parseInt(h.substring(4, 6), 16) || 0;
+    const a = Math.max(0, Math.min(1, Number(op || 1)));
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  class OverlayRenderer {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
+      this.running = false;
+      this.lastTs = 0;
+      this.state = this.defaultState();
+      this.raf = null;
+    }
+    defaultState() {
+      return {
+        width: this.canvas ? this.canvas.width : 1280,
+        height: this.canvas ? this.canvas.height : 720,
+        scale: 1,
+        bg: '#000000',
+        bgOpa: 0,
+        ticker: {
+          text: '',
+          speed: 120,
+          font: 'Segoe UI',
+          size: 24,
+          color: '#ffffff',
+          pos: 'bottom',
+          bg: '#000000',
+          opa: 0.4,
+          offset: 0,
+        },
+        clock: {
+          enable: false,
+          format: '24',
+          showDate: false,
+          color: '#ffffff',
+          size: 20,
+        },
+        logo: {
+          url: '',
+          pos: 'tr',
+          size: 80,
+          opa: 0.8,
+          img: null,
+        },
+        lowerThird: {
+          show: false,
+          title: '',
+          sub: '',
+        },
+        scoreboard: {
+          a: '',
+          b: '',
+          aVal: 0,
+          bVal: 0,
+        },
+        banner: {
+          show: false,
+          text: '',
+        },
+      };
+    }
+    setSize(w, h) {
+      if (!this.canvas) return;
+      const W = Math.max(320, Math.round(Number(w) || 1280));
+      const H = Math.max(240, Math.round(Number(h) || 720));
+      this.canvas.width = W;
+      this.canvas.height = H;
+      this.state.width = W;
+      this.state.height = H;
+    }
+    setScale(s) {
+      const val = Math.max(0.5, Math.min(3, Number(s) || 1));
+      this.state.scale = val;
+    }
+    update(partial) {
+      Object.assign(this.state, partial || {});
+    }
+    updateTicker(partial) {
+      Object.assign(this.state.ticker, partial || {});
+    }
+    updateClock(partial) {
+      Object.assign(this.state.clock, partial || {});
+    }
+    updateLogo(partial) {
+      Object.assign(this.state.logo, partial || {});
+      if (partial && typeof partial.url === 'string' && partial.url !== this.state.logo.url) {
+        this.state.logo.img = null;
+      }
+    }
+    updateLowerThird(partial) {
+      Object.assign(this.state.lowerThird, partial || {});
+    }
+    updateScoreboard(partial) {
+      Object.assign(this.state.scoreboard, partial || {});
+    }
+    updateBanner(partial) {
+      Object.assign(this.state.banner, partial || {});
+    }
+    reset() {
+      this.stop();
+      this.state = this.defaultState();
+      this.setSize(this.state.width, this.state.height);
+    }
+    start() {
+      if (!this.ctx || this.running) return;
+      this.running = true;
+      const loop = (ts) => {
+        if (!this.running) return;
+        const dt = this.lastTs ? (ts - this.lastTs) / 1000 : 0;
+        this.lastTs = ts;
+        this.render(dt);
+        this.raf = requestAnimationFrame(loop);
+      };
+      this.raf = requestAnimationFrame(loop);
+    }
+    stop() {
+      this.running = false;
+      if (this.raf) { cancelAnimationFrame(this.raf); this.raf = null; }
+    }
+    clear() {
+      if (!this.ctx) return;
+      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+    drawBackground() {
+      if (!this.ctx) return;
+      if (this.state.bgOpa > 0) {
+        this.ctx.fillStyle = rgba(this.state.bg, this.state.bgOpa);
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+    }
+    drawTicker(dt) {
+      const t = this.state.ticker;
+      if (!t.text) return;
+      const ctx = this.ctx;
+      const H = this.canvas.height;
+      const size = Math.max(10, Number(t.size) || 24);
+      const y = t.pos === 'top' ? size + 8 : H - 8;
+      if (t.opa > 0) {
+        const h = size + 12;
+        const y0 = t.pos === 'top' ? 0 : H - h;
+        ctx.fillStyle = rgba(t.bg, t.opa);
+        ctx.fillRect(0, y0, this.canvas.width, h);
+      }
+      ctx.font = `${size}px ${t.font || 'Segoe UI'}, sans-serif`;
+      ctx.fillStyle = t.color || '#ffffff';
+      const speed = Math.max(10, Number(t.speed) || 120);
+      t.offset = ((t.offset || 0) - speed * dt) % (this.canvas.width * 2);
+      let x = this.canvas.width + (t.offset || 0);
+      const gap = 40;
+      const text = String(t.text);
+      const w = ctx.measureText(text).width;
+      while (x > -w) {
+        ctx.fillText(text, x, y);
+        x -= w + gap;
+      }
+    }
+    drawClock() {
+      const c = this.state.clock;
+      if (!c.enable) return;
+      const ctx = this.ctx;
+      const size = Math.max(10, Number(c.size) || 20);
+      ctx.font = `${size}px Segoe UI, sans-serif`;
+      ctx.fillStyle = c.color || '#ffffff';
+      const d = new Date();
+      const hh = d.getHours();
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      const h12 = ((hh + 11) % 12) + 1;
+      const ampm = hh >= 12 ? 'PM' : 'AM';
+      const time = c.format === '12' ? `${h12}:${mm}:${ss} ${ampm}` : `${String(hh).padStart(2,'0')}:${mm}:${ss}`;
+      const date = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const text = c.showDate ? `${date} ${time}` : time;
+      ctx.textAlign = 'center';
+      ctx.fillText(text, this.canvas.width / 2, size + 8);
+      ctx.textAlign = 'start';
+    }
+    async ensureLogo() {
+      const l = this.state.logo;
+      if (!l.url || l.img) return;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      return await new Promise((resolve) => {
+        img.onload = () => { l.img = img; resolve(true); };
+        img.onerror = () => resolve(false);
+        img.src = l.url;
+      });
+    }
+    async drawLogo() {
+      const l = this.state.logo;
+      if (!l.url) return;
+      await this.ensureLogo();
+      if (!l.img) return;
+      const ctx = this.ctx;
+      const s = Math.max(20, Number(l.size) || 80);
+      const opa = Math.max(0, Math.min(1, Number(l.opa) || 1));
+      ctx.globalAlpha = opa;
+      let x = 8, y = 8;
+      if (l.pos === 'tr') { x = this.canvas.width - s - 8; y = 8; }
+      if (l.pos === 'bl') { x = 8; y = this.canvas.height - s - 8; }
+      if (l.pos === 'br') { x = this.canvas.width - s - 8; y = this.canvas.height - s - 8; }
+      ctx.drawImage(l.img, x, y, s, s);
+      ctx.globalAlpha = 1;
+    }
+    drawLowerThird() {
+      const lt = this.state.lowerThird;
+      if (!lt.show) return;
+      const ctx = this.ctx;
+      const H = this.canvas.height;
+      const w = Math.min(this.canvas.width - 40, 640);
+      const h = 80;
+      const x = (this.canvas.width - w) / 2;
+      const y = H - h - 24;
+      ctx.fillStyle = rgba('#000000', 0.4);
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '24px Segoe UI, sans-serif';
+      ctx.fillText(String(lt.title || ''), x + 16, y + 34);
+      ctx.font = '16px Segoe UI, sans-serif';
+      ctx.fillText(String(lt.sub || ''), x + 16, y + 60);
+    }
+    drawScoreboard() {
+      const sb = this.state.scoreboard;
+      if (!sb.a && !sb.b) return;
+      const ctx = this.ctx;
+      const w = 280;
+      const h = 48;
+      const x = (this.canvas.width - w) / 2;
+      const y = 8;
+      ctx.fillStyle = rgba('#000000', 0.4);
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '20px Segoe UI, sans-serif';
+      const txtA = `${String(sb.a || '')} ${Number(sb.aVal || 0)}`;
+      const txtB = `${Number(sb.bVal || 0)} ${String(sb.b || '')}`;
+      ctx.textAlign = 'start';
+      ctx.fillText(txtA, x + 12, y + 30);
+      ctx.textAlign = 'end';
+      ctx.fillText(txtB, x + w - 12, y + 30);
+      ctx.textAlign = 'start';
+    }
+    drawBanner() {
+      const b = this.state.banner;
+      if (!b.show || !b.text) return;
+      const ctx = this.ctx;
+      const w = Math.min(this.canvas.width - 40, 720);
+      const h = 48;
+      const x = (this.canvas.width - w) / 2;
+      const y = this.canvas.height - h - 8;
+      ctx.fillStyle = rgba('#ff0000', 0.7);
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '20px Segoe UI, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(String(b.text || ''), x + w / 2, y + 30);
+      ctx.textAlign = 'start';
+    }
+    render(dt) {
+      if (!this.ctx) return;
+      this.clear();
+      this.drawBackground();
+      this.drawTicker(dt);
+      this.drawClock();
+      this.drawLogo();
+      this.drawLowerThird();
+      this.drawScoreboard();
+      this.drawBanner();
+    }
+  }
+
+  let overlay = null;
+  let ovEventSource = null;
+  let sseUpdating = false;
+  let pushTimer = null;
+  function setupOverlayStudio() {
+    if (!el.ovCanvas) return;
+    overlay = new OverlayRenderer(el.ovCanvas);
+    const setMsg = (t, cls) => { if (el.ovMsg) { el.ovMsg.textContent = t || ''; el.ovMsg.className = `message ${cls||'info'}`; } };
+    const syncBase = () => {
+      const w = Number(el.ovWidth?.value || overlay.state.width);
+      const h = Number(el.ovHeight?.value || overlay.state.height);
+      overlay.setSize(w, h);
+      overlay.setScale(Number(el.ovScale?.value || 1));
+      overlay.update({ bg: el.ovBg?.value || '#000000', bgOpa: Number(el.ovBgOpa?.value || 0) });
+    };
+    const syncTicker = () => {
+      overlay.updateTicker({
+        text: el.ovTickerText?.value || '',
+        speed: Number(el.ovTickerSpeed?.value || 120),
+        font: el.ovTickerFont?.value || 'Segoe UI',
+        size: Number(el.ovTickerSize?.value || 24),
+        color: el.ovTickerColor?.value || '#ffffff',
+        pos: el.ovTickerPos?.value || 'bottom',
+        bg: el.ovTickerBg?.value || '#000000',
+        opa: Number(el.ovTickerOpa?.value || 0.4),
+      });
+    };
+    const syncClock = () => {
+      overlay.updateClock({
+        enable: !!el.ovClockEnable?.checked,
+        format: el.ovClockFormat?.value || '24',
+        showDate: !!el.ovClockDate?.checked,
+        color: el.ovClockColor?.value || '#ffffff',
+        size: Number(el.ovClockSize?.value || 20),
+      });
+    };
+    const syncLogo = () => {
+      overlay.updateLogo({
+        url: el.ovLogoUrl?.value || '',
+        pos: el.ovLogoPos?.value || 'tr',
+        size: Number(el.ovLogoSize?.value || 80),
+        opa: Number(el.ovLogoOpa?.value || 0.8),
+      });
+    };
+    const syncLowerThird = () => {
+      overlay.updateLowerThird({
+        show: !!el.ovLtShow?.checked,
+        title: el.ovLtTitle?.value || '',
+        sub: el.ovLtSub?.value || '',
+      });
+    };
+    const syncScoreboard = () => {
+      overlay.updateScoreboard({
+        a: el.ovScoreA?.value || '',
+        b: el.ovScoreB?.value || '',
+        aVal: Number(el.ovScoreAVal?.value || 0),
+        bVal: Number(el.ovScoreBVal?.value || 0),
+      });
+    };
+    const syncBanner = () => {
+      overlay.updateBanner({
+        show: !!el.ovBannerShow?.checked,
+        text: el.ovBannerText?.value || '',
+      });
+    };
+    const syncAll = () => { syncBase(); syncTicker(); syncClock(); syncLogo(); syncLowerThird(); syncScoreboard(); syncBanner(); };
+    const handlers = [
+      el.ovWidth, el.ovHeight, el.ovScale, el.ovBg, el.ovBgOpa,
+      el.ovTickerText, el.ovTickerSpeed, el.ovTickerFont, el.ovTickerSize, el.ovTickerColor, el.ovTickerPos, el.ovTickerBg, el.ovTickerOpa,
+      el.ovClockEnable, el.ovClockFormat, el.ovClockDate, el.ovClockColor, el.ovClockSize,
+      el.ovLogoUrl, el.ovLogoPos, el.ovLogoSize, el.ovLogoOpa,
+      el.ovLtTitle, el.ovLtSub, el.ovLtShow,
+      el.ovScoreA, el.ovScoreB, el.ovScoreAVal, el.ovScoreBVal,
+      el.ovBannerText, el.ovBannerShow
+    ].filter(Boolean);
+    handlers.forEach((node) => {
+      const ev = node.type === 'checkbox' ? 'change' : 'input';
+      node.addEventListener(ev, () => {
+        syncAll();
+        maybePush();
+      });
+    });
+    syncAll();
+    if (el.ovStart) {
+      el.ovStart.addEventListener('click', (e) => {
+        e.preventDefault();
+        syncAll();
+        overlay.start();
+        setMsg('Overlay started', 'success');
+      });
+    }
+    if (el.ovStop) {
+      el.ovStop.addEventListener('click', (e) => {
+        e.preventDefault();
+        overlay.stop();
+        overlay.clear();
+        setMsg('Overlay stopped', 'warn');
+      });
+    }
+    if (el.ovReset) {
+      el.ovReset.addEventListener('click', (e) => {
+        e.preventDefault();
+        overlay.reset();
+        if (el.ovWidth) el.ovWidth.value = String(overlay.state.width);
+        if (el.ovHeight) el.ovHeight.value = String(overlay.state.height);
+        if (el.ovScale) el.ovScale.value = String(overlay.state.scale);
+        if (el.ovBg) el.ovBg.value = String(overlay.state.bg);
+        if (el.ovBgOpa) el.ovBgOpa.value = String(overlay.state.bgOpa);
+        if (el.ovTickerText) el.ovTickerText.value = String(overlay.state.ticker.text);
+        if (el.ovTickerSpeed) el.ovTickerSpeed.value = String(overlay.state.ticker.speed);
+        if (el.ovTickerFont) el.ovTickerFont.value = String(overlay.state.ticker.font);
+        if (el.ovTickerSize) el.ovTickerSize.value = String(overlay.state.ticker.size);
+        if (el.ovTickerColor) el.ovTickerColor.value = String(overlay.state.ticker.color);
+        if (el.ovTickerPos) el.ovTickerPos.value = String(overlay.state.ticker.pos);
+        if (el.ovTickerBg) el.ovTickerBg.value = String(overlay.state.ticker.bg);
+        if (el.ovTickerOpa) el.ovTickerOpa.value = String(overlay.state.ticker.opa);
+        if (el.ovClockEnable) el.ovClockEnable.checked = !!overlay.state.clock.enable;
+        if (el.ovClockFormat) el.ovClockFormat.value = String(overlay.state.clock.format);
+        if (el.ovClockDate) el.ovClockDate.checked = !!overlay.state.clock.showDate;
+        if (el.ovClockColor) el.ovClockColor.value = String(overlay.state.clock.color);
+        if (el.ovClockSize) el.ovClockSize.value = String(overlay.state.clock.size);
+        if (el.ovLogoUrl) el.ovLogoUrl.value = String(overlay.state.logo.url);
+        if (el.ovLogoPos) el.ovLogoPos.value = String(overlay.state.logo.pos);
+        if (el.ovLogoSize) el.ovLogoSize.value = String(overlay.state.logo.size);
+        if (el.ovLogoOpa) el.ovLogoOpa.value = String(overlay.state.logo.opa);
+        if (el.ovLtTitle) el.ovLtTitle.value = String(overlay.state.lowerThird.title);
+        if (el.ovLtSub) el.ovLtSub.value = String(overlay.state.lowerThird.sub);
+        if (el.ovLtShow) el.ovLtShow.checked = !!overlay.state.lowerThird.show;
+        if (el.ovScoreA) el.ovScoreA.value = String(overlay.state.scoreboard.a);
+        if (el.ovScoreB) el.ovScoreB.value = String(overlay.state.scoreboard.b);
+        if (el.ovScoreAVal) el.ovScoreAVal.value = String(overlay.state.scoreboard.aVal);
+        if (el.ovScoreBVal) el.ovScoreBVal.value = String(overlay.state.scoreboard.bVal);
+        if (el.ovBannerText) el.ovBannerText.value = String(overlay.state.banner.text);
+        if (el.ovBannerShow) el.ovBannerShow.checked = !!overlay.state.banner.show;
+        syncAll();
+        setMsg('Reset', 'info');
+      });
+    }
+    const presetKey = 'overlayPreset';
+    if (el.ovSave) {
+      el.ovSave.addEventListener('click', (e) => {
+        e.preventDefault();
+        const data = JSON.stringify(overlay.state);
+        try { localStorage.setItem(presetKey, data); setMsg('Preset saved', 'success'); } catch (_) { setMsg('Save failed', 'error'); }
+      });
+    }
+    if (el.ovLoad) {
+      el.ovLoad.addEventListener('click', (e) => {
+        e.preventDefault();
+        try {
+          const raw = localStorage.getItem(presetKey);
+          if (!raw) { setMsg('No preset found', 'info'); return; }
+          const st = JSON.parse(raw);
+          overlay.update(st);
+          overlay.updateTicker(st.ticker || {});
+          overlay.updateClock(st.clock || {});
+          overlay.updateLogo(st.logo || {});
+          overlay.updateLowerThird(st.lowerThird || {});
+          overlay.updateScoreboard(st.scoreboard || {});
+          overlay.updateBanner(st.banner || {});
+          if (el.ovWidth) el.ovWidth.value = String(st.width || overlay.state.width);
+          if (el.ovHeight) el.ovHeight.value = String(st.height || overlay.state.height);
+          if (el.ovScale) el.ovScale.value = String(st.scale || overlay.state.scale);
+          if (el.ovBg) el.ovBg.value = String(st.bg || overlay.state.bg);
+          if (el.ovBgOpa) el.ovBgOpa.value = String(st.bgOpa || overlay.state.bgOpa);
+          if (el.ovTickerText) el.ovTickerText.value = String((st.ticker && st.ticker.text) || '');
+          if (el.ovTickerSpeed) el.ovTickerSpeed.value = String((st.ticker && st.ticker.speed) || 120);
+          if (el.ovTickerFont) el.ovTickerFont.value = String((st.ticker && st.ticker.font) || 'Segoe UI');
+          if (el.ovTickerSize) el.ovTickerSize.value = String((st.ticker && st.ticker.size) || 24);
+          if (el.ovTickerColor) el.ovTickerColor.value = String((st.ticker && st.ticker.color) || '#ffffff');
+          if (el.ovTickerPos) el.ovTickerPos.value = String((st.ticker && st.ticker.pos) || 'bottom');
+          if (el.ovTickerBg) el.ovTickerBg.value = String((st.ticker && st.ticker.bg) || '#000000');
+          if (el.ovTickerOpa) el.ovTickerOpa.value = String((st.ticker && st.ticker.opa) || 0.4);
+          if (el.ovClockEnable) el.ovClockEnable.checked = !!(st.clock && st.clock.enable);
+          if (el.ovClockFormat) el.ovClockFormat.value = String((st.clock && st.clock.format) || '24');
+          if (el.ovClockDate) el.ovClockDate.checked = !!(st.clock && st.clock.showDate);
+          if (el.ovClockColor) el.ovClockColor.value = String((st.clock && st.clock.color) || '#ffffff');
+          if (el.ovClockSize) el.ovClockSize.value = String((st.clock && st.clock.size) || 20);
+          if (el.ovLogoUrl) el.ovLogoUrl.value = String((st.logo && st.logo.url) || '');
+          if (el.ovLogoPos) el.ovLogoPos.value = String((st.logo && st.logo.pos) || 'tr');
+          if (el.ovLogoSize) el.ovLogoSize.value = String((st.logo && st.logo.size) || 80);
+          if (el.ovLogoOpa) el.ovLogoOpa.value = String((st.logo && st.logo.opa) || 0.8);
+          if (el.ovLtTitle) el.ovLtTitle.value = String((st.lowerThird && st.lowerThird.title) || '');
+          if (el.ovLtSub) el.ovLtSub.value = String((st.lowerThird && st.lowerThird.sub) || '');
+          if (el.ovLtShow) el.ovLtShow.checked = !!(st.lowerThird && st.lowerThird.show);
+          if (el.ovScoreA) el.ovScoreA.value = String((st.scoreboard && st.scoreboard.a) || '');
+          if (el.ovScoreB) el.ovScoreB.value = String((st.scoreboard && st.scoreboard.b) || '');
+          if (el.ovScoreAVal) el.ovScoreAVal.value = String((st.scoreboard && st.scoreboard.aVal) || 0);
+          if (el.ovScoreBVal) el.ovScoreBVal.value = String((st.scoreboard && st.scoreboard.bVal) || 0);
+          if (el.ovBannerText) el.ovBannerText.value = String((st.banner && st.banner.text) || '');
+          if (el.ovBannerShow) el.ovBannerShow.checked = !!(st.banner && st.banner.show);
+          syncAll();
+          setMsg('Preset loaded', 'success');
+        } catch (_) {
+          setMsg('Load failed', 'error');
+        }
+      });
+    }
+
+    const targetId = () => el.ovTarget?.value || '';
+    const setConn = (text) => { if (el.ovConnStatus) el.ovConnStatus.textContent = text || ''; };
+    const disconnect = () => {
+      if (ovEventSource) { try { ovEventSource.close(); } catch (_) {} ovEventSource = null; }
+      setConn('Disconnected');
+      if (el.ovConnect) el.ovConnect.innerHTML = '<i class="fa-solid fa-plug"></i> Connect';
+    };
+    const connect = () => {
+      disconnect();
+      const id = targetId();
+      if (!id) { setMsg('Select a target', 'error'); return; }
+      const url = id === 'live' ? `${API_URL}/videos/overlay/live/sse` : `${API_URL}/videos/${id}/overlay/sse`;
+      try {
+        ovEventSource = new EventSource(url, { withCredentials: true });
+        ovEventSource.onmessage = (ev) => {
+          try {
+            const data = JSON.parse(ev.data || '{}');
+            sseUpdating = true;
+            overlay.update(data || {});
+            overlay.updateTicker((data && data.ticker) || {});
+            overlay.updateClock((data && data.clock) || {});
+            overlay.updateLogo((data && data.logo) || {});
+            overlay.updateLowerThird((data && data.lowerThird) || {});
+            overlay.updateScoreboard((data && data.scoreboard) || {});
+            overlay.updateBanner((data && data.banner) || {});
+            if (el.ovWidth && data.width) el.ovWidth.value = String(data.width);
+            if (el.ovHeight && data.height) el.ovHeight.value = String(data.height);
+            if (el.ovScale && data.scale) el.ovScale.value = String(data.scale);
+            if (el.ovBg && data.bg) el.ovBg.value = String(data.bg);
+            if (el.ovBgOpa && typeof data.bgOpa !== 'undefined') el.ovBgOpa.value = String(data.bgOpa);
+            if (el.ovTickerText && data.ticker && typeof data.ticker.text === 'string') el.ovTickerText.value = String(data.ticker.text);
+            if (el.ovTickerSpeed && data.ticker && typeof data.ticker.speed !== 'undefined') el.ovTickerSpeed.value = String(data.ticker.speed);
+            if (el.ovTickerFont && data.ticker && typeof data.ticker.font === 'string') el.ovTickerFont.value = String(data.ticker.font);
+            if (el.ovTickerSize && data.ticker && typeof data.ticker.size !== 'undefined') el.ovTickerSize.value = String(data.ticker.size);
+            if (el.ovTickerColor && data.ticker && typeof data.ticker.color === 'string') el.ovTickerColor.value = String(data.ticker.color);
+            if (el.ovTickerPos && data.ticker && typeof data.ticker.pos === 'string') el.ovTickerPos.value = String(data.ticker.pos);
+            if (el.ovTickerBg && data.ticker && typeof data.ticker.bg === 'string') el.ovTickerBg.value = String(data.ticker.bg);
+            if (el.ovTickerOpa && data.ticker && typeof data.ticker.opa !== 'undefined') el.ovTickerOpa.value = String(data.ticker.opa);
+            if (el.ovClockEnable && data.clock && typeof data.clock.enable !== 'undefined') el.ovClockEnable.checked = !!data.clock.enable;
+            if (el.ovClockFormat && data.clock && typeof data.clock.format === 'string') el.ovClockFormat.value = String(data.clock.format);
+            if (el.ovClockDate && data.clock && typeof data.clock.showDate !== 'undefined') el.ovClockDate.checked = !!data.clock.showDate;
+            if (el.ovClockColor && data.clock && typeof data.clock.color === 'string') el.ovClockColor.value = String(data.clock.color);
+            if (el.ovClockSize && data.clock && typeof data.clock.size !== 'undefined') el.ovClockSize.value = String(data.clock.size);
+            if (el.ovLogoUrl && data.logo && typeof data.logo.url === 'string') el.ovLogoUrl.value = String(data.logo.url);
+            if (el.ovLogoPos && data.logo && typeof data.logo.pos === 'string') el.ovLogoPos.value = String(data.logo.pos);
+            if (el.ovLogoSize && data.logo && typeof data.logo.size !== 'undefined') el.ovLogoSize.value = String(data.logo.size);
+            if (el.ovLogoOpa && data.logo && typeof data.logo.opa !== 'undefined') el.ovLogoOpa.value = String(data.logo.opa);
+            if (el.ovLtTitle && data.lowerThird && typeof data.lowerThird.title === 'string') el.ovLtTitle.value = String(data.lowerThird.title);
+            if (el.ovLtSub && data.lowerThird && typeof data.lowerThird.sub === 'string') el.ovLtSub.value = String(data.lowerThird.sub);
+            if (el.ovLtShow && data.lowerThird && typeof data.lowerThird.show !== 'undefined') el.ovLtShow.checked = !!data.lowerThird.show;
+            if (el.ovScoreA && data.scoreboard && typeof data.scoreboard.a === 'string') el.ovScoreA.value = String(data.scoreboard.a);
+            if (el.ovScoreB && data.scoreboard && typeof data.scoreboard.b === 'string') el.ovScoreB.value = String(data.scoreboard.b);
+            if (el.ovScoreAVal && data.scoreboard && typeof data.scoreboard.aVal !== 'undefined') el.ovScoreAVal.value = String(data.scoreboard.aVal);
+            if (el.ovScoreBVal && data.scoreboard && typeof data.scoreboard.bVal !== 'undefined') el.ovScoreBVal.value = String(data.scoreboard.bVal);
+            if (el.ovBannerText && data.banner && typeof data.banner.text === 'string') el.ovBannerText.value = String(data.banner.text);
+            if (el.ovBannerShow && data.banner && typeof data.banner.show !== 'undefined') el.ovBannerShow.checked = !!data.banner.show;
+            sseUpdating = false;
+            setConn('Connected');
+          } catch (_) {}
+        };
+        ovEventSource.onerror = () => { setConn('Disconnected'); };
+        if (el.ovConnect) el.ovConnect.innerHTML = '<i class="fa-solid fa-plug-circle-xmark"></i> Disconnect';
+        setConn('Connected');
+        setMsg('Connected to target overlay', 'success');
+      } catch (e) {
+        setConn('Failed');
+        setMsg('Failed to connect', 'error');
+      }
+    };
+    const pushNow = async () => {
+      const id = targetId();
+      if (!id) return;
+      if (sseUpdating) return;
+      try {
+        const path = id === 'live' ? `${API_URL}/videos/overlay/live` : `${API_URL}/videos/${id}/overlay`;
+        await fetchJSON(path, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(overlay.state),
+        });
+        setConn('Synced');
+      } catch (_) {
+        setConn('Sync error');
+      }
+    };
+    const maybePush = () => {
+      if (!el.ovTarget || !el.ovTarget.value) return;
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(pushNow, 200);
+    };
+    if (el.ovConnect) {
+      el.ovConnect.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (ovEventSource) return disconnect();
+        connect();
+      });
+    }
+    if (el.ovTarget) {
+      el.ovTarget.addEventListener('change', () => {
+        disconnect();
+        setConn('');
+      });
+    }
+  }
+
   /** Auto-refresh every 10s */
   function startAutoRefresh() {
     if (refreshTimer) clearInterval(refreshTimer);
@@ -1195,6 +2072,7 @@
       setupLibraryUpload();
       setupPlaylistForm();
       setupUrlStreamForm();
+      setupOverlayStudio();
       setupActiveActions();
       setupFilters();
       setupCardActions();

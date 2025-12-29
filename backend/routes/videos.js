@@ -17,6 +17,10 @@ const uploadDir = path.join(process.cwd(), 'videos');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+const thumbsDir = path.join(uploadDir, 'thumbs');
+if (!fs.existsSync(thumbsDir)) {
+  try { fs.mkdirSync(thumbsDir, { recursive: true }); } catch (_) {}
+}
 
 const allowedExts = ['.mp4', '.avi', '.mov', '.mkv', '.flv'];
 const storage = multer.diskStorage({
@@ -48,6 +52,22 @@ function handleValidationErrors(req, res) {
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
   }
+}
+
+async function generateThumbnail(inputPath, outPath) {
+  return new Promise((resolve) => {
+    try {
+      const cmd = ffmpeg(inputPath)
+        .inputOptions(['-ss', '00:00:01'])
+        .outputOptions(['-vframes', '1', '-vf', 'scale=480:-2', '-q:v', '2'])
+        .output(outPath)
+        .on('end', () => resolve(true))
+        .on('error', () => resolve(false));
+      cmd.run();
+    } catch (_) {
+      resolve(false);
+    }
+  });
 }
 
 // Simple in-memory rate limiter (per IP + path)
@@ -134,6 +154,16 @@ router.post(
         loop: !!req.body.loop,
         status: 'scheduled',
       });
+      try {
+        const thumbName = `${video._id}.jpg`;
+        const thumbPath = path.join(thumbsDir, thumbName);
+        const ok = await generateThumbnail(filepath, thumbPath);
+        if (ok) {
+          video.thumbnailPath = thumbPath;
+          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
+          await video.save();
+        }
+      } catch (_) {}
       try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
     } catch (err) {
@@ -193,6 +223,16 @@ router.post(
         loop: !!req.body.loop,
         status: 'scheduled',
       });
+      try {
+        const thumbName = `${video._id}.jpg`;
+        const thumbPath = path.join(thumbsDir, thumbName);
+        const ok = await generateThumbnail(filepath, thumbPath);
+        if (ok) {
+          video.thumbnailPath = thumbPath;
+          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
+          await video.save();
+        }
+      } catch (_) {}
       try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
     } catch (err) {
@@ -274,6 +314,16 @@ router.post(
         duration,
         status: 'library',
       });
+      try {
+        const thumbName = `${video._id}.jpg`;
+        const thumbPath = path.join(thumbsDir, thumbName);
+        const ok = await generateThumbnail(filepath, thumbPath);
+        if (ok) {
+          video.thumbnailPath = thumbPath;
+          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
+          await video.save();
+        }
+      } catch (_) {}
       try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
     } catch (err) {
@@ -471,6 +521,99 @@ router.get(
   }
 );
 
+// GET /:id/file — stream raw video file with Range support
+router.get(
+  '/:id/file',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const v = await Video.findById(req.params.id);
+      if (!v) return res.status(404).json({ error: 'Video not found' });
+      const filePath = v.filepath;
+      if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File missing' });
+      const stat = fs.statSync(filePath);
+      const size = stat.size;
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeMap = {
+        '.mp4': 'video/mp4',
+        '.mkv': 'video/x-matroska',
+        '.mov': 'video/quicktime',
+        '.avi': 'video/x-msvideo',
+        '.flv': 'video/x-flv',
+      };
+      const contentType = mimeMap[ext] || 'application/octet-stream';
+      const range = req.headers.range;
+      if (range) {
+        const parts = String(range).replace(/bytes=/, '').split('-');
+        let start = parseInt(parts[0], 10);
+        let end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+        if (!Number.isFinite(start) || start < 0) start = 0;
+        if (!Number.isFinite(end) || end >= size) end = size - 1;
+        const chunkSize = (end - start) + 1;
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType,
+        });
+        fs.createReadStream(filePath, { start, end }).pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': size,
+          'Content-Type': contentType,
+          'Accept-Ranges': 'bytes',
+        });
+        fs.createReadStream(filePath).pipe(res);
+      }
+    } catch (err) { next(err); }
+  }
+);
+
+// GET /:id/thumbnail — serve thumbnail image
+router.get(
+  '/:id/thumbnail',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const video = await Video.findById(req.params.id);
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+      const p = video.thumbnailPath;
+      if (!p || !fs.existsSync(p)) {
+        return res.status(404).json({ error: 'Thumbnail not available' });
+      }
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.sendFile(path.resolve(p));
+    } catch (err) { next(err); }
+  }
+);
+
+// POST /:id/thumbnail/regenerate — create or refresh thumbnail
+router.post(
+  '/:id/thumbnail/regenerate',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const video = await Video.findById(req.params.id);
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+      if (!video.filepath || !fs.existsSync(video.filepath)) return res.status(404).json({ error: 'Video file missing' });
+      const thumbName = `${video._id}.jpg`;
+      const thumbPath = path.join(thumbsDir, thumbName);
+      const ok = await generateThumbnail(video.filepath, thumbPath);
+      if (!ok) return res.status(500).json({ error: 'Thumbnail generation failed' });
+      video.thumbnailPath = thumbPath;
+      video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
+      await video.save();
+      return res.json({ success: true, thumbnailUrl: video.thumbnailUrl });
+    } catch (err) { next(err); }
+  }
+);
+
 // 4. PUT /:id
 router.put(
   '/:id',
@@ -565,8 +708,8 @@ router.post(
         }
       }
 
-      // Case B: Instant Live for Library items
-      if (video.status === 'library') {
+      // Case B: Instant Live for non-streaming items (library/completed/failed/cancelled)
+      if (['library', 'completed', 'failed', 'cancelled'].includes(video.status)) {
         const rtmpUrl = String(req.body.rtmpUrl || video.rtmpUrl || '').trim();
         const streamKey = String(req.body.streamKey || video.streamKey || '').trim();
         if (!rtmpUrl || !streamKey || streamKey.length < 8) {
@@ -722,6 +865,9 @@ router.delete(
         if (video.filepath && fs.existsSync(video.filepath)) {
           fs.unlinkSync(video.filepath);
         }
+        if (video.thumbnailPath && fs.existsSync(video.thumbnailPath)) {
+          fs.unlinkSync(video.thumbnailPath);
+        }
       } catch (fsErr) {
         console.warn(`[Videos] Failed to delete file: ${fsErr.message}`);
       }
@@ -731,6 +877,103 @@ router.delete(
     } catch (err) {
       next(err);
     }
+  }
+);
+
+const sseClients = new Map();
+let liveOverlayConfig = {};
+const liveSseClients = new Set();
+router.get(
+  '/:id/overlay/sse',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const video = await Video.findById(req.params.id);
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders && res.flushHeaders();
+      const id = String(req.params.id);
+      const set = sseClients.get(id) || new Set();
+      set.add(res);
+      sseClients.set(id, set);
+      const data = JSON.stringify(video.overlayConfig || {});
+      res.write(`data: ${data}\n\n`);
+      req.on('close', () => {
+        const s = sseClients.get(id);
+        if (s) { s.delete(res); if (s.size === 0) sseClients.delete(id); }
+        res.end();
+      });
+    } catch (err) { next(err); }
+  }
+);
+// Live-level overlay SSE (not tied to a specific video)
+router.get('/overlay/live/sse', async (req, res, next) => {
+  try {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders && res.flushHeaders();
+    liveSseClients.add(res);
+    res.write(`data: ${JSON.stringify(liveOverlayConfig || {})}\n\n`);
+    req.on('close', () => {
+      liveSseClients.delete(res);
+      res.end();
+    });
+  } catch (err) { next(err); }
+});
+router.put('/overlay/live', async (req, res, next) => {
+  try {
+    liveOverlayConfig = req.body || {};
+    const payload = `data: ${JSON.stringify(liveOverlayConfig || {})}\n\n`;
+    for (const client of Array.from(liveSseClients)) {
+      try { client.write(payload); } catch (_) {}
+    }
+    return res.json({ success: true });
+  } catch (err) { next(err); }
+});
+router.get('/overlay/live', async (_req, res, next) => {
+  try {
+    return res.json(liveOverlayConfig || {});
+  } catch (err) { next(err); }
+});
+router.put(
+  '/:id/overlay',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const video = await Video.findById(req.params.id);
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+      video.overlayConfig = req.body || {};
+      await video.save();
+      const id = String(req.params.id);
+      const set = sseClients.get(id);
+      if (set) {
+        const payload = `data: ${JSON.stringify(video.overlayConfig || {})}\n\n`;
+        for (const client of set) {
+          try { client.write(payload); } catch (_) {}
+        }
+      }
+      return res.json({ success: true });
+    } catch (err) { next(err); }
+  }
+);
+router.get(
+  '/:id/overlay',
+  [param('id').isMongoId()],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const video = await Video.findById(req.params.id).lean().exec();
+      if (!video) return res.status(404).json({ error: 'Video not found' });
+      return res.json(video.overlayConfig || {});
+    } catch (err) { next(err); }
   }
 );
 

@@ -19,6 +19,25 @@ const YTDLP_EXTRACTOR_ARGS = process.env.YTDLP_EXTRACTOR_ARGS || '';
 const YTDLP_SOURCE_ADDRESS = process.env.YTDLP_SOURCE_ADDRESS || '';
 const { spawn } = require('child_process');
 
+// Optional cookie header support for ytdl-core
+let COOKIES_HEADER = '';
+try {
+  if (YTDLP_COOKIES && fs.existsSync(YTDLP_COOKIES)) {
+    const txt = fs.readFileSync(YTDLP_COOKIES, 'utf8');
+    const lines = txt.split(/\r?\n/).filter(Boolean).filter(l => !l.startsWith('#'));
+    const pairs = [];
+    for (const line of lines) {
+      const parts = line.split('\t');
+      if (parts.length >= 7) {
+        const name = parts[5];
+        const value = parts[6];
+        if (name && value) pairs.push(`${name}=${value}`);
+      }
+    }
+    if (pairs.length) COOKIES_HEADER = pairs.join('; ');
+  }
+} catch (_) {}
+
 async function resolveViaYtdlpBin(url) {
   return new Promise((resolve) => {
     try {
@@ -106,13 +125,11 @@ class Streamer {
     const useStreamKey = opts.streamKey;
     const outputUrl = buildOutputUrl(useRtmpUrl, useStreamKey);
 
-    // Basic YouTube URL detection; fall back to letting ffmpeg fetch http(s) URLs directly
     const isYouTube = /youtube\.com\/watch\?v=|youtu\.be\//i.test(url);
-
     let inputStreamOrUrl = url;
     let directResolvedUrl = null;
+
     if (isYouTube) {
-      // Try to resolve a direct media URL via yt-dlp first (most robust)
       if (ytdlp) {
         try {
           const ytdlpOpts = {
@@ -133,14 +150,12 @@ class Streamer {
         }
       }
       if (!directResolvedUrl) {
-        try {
-          directResolvedUrl = await resolveViaYtdlpBin(url);
-        } catch (_) {}
+        try { directResolvedUrl = await resolveViaYtdlpBin(url); } catch (_) {}
       }
       inputStreamOrUrl = directResolvedUrl || url;
     }
 
-    const inputOpts = ['-re', '-thread_queue_size', '4096', '-user_agent', YTDLP_USER_AGENT];
+    const inputOpts = ['-re', '-thread_queue_size', '4096', '-user_agent', YTDLP_USER_AGENT, '-protocol_whitelist', 'file,http,https,tcp,tls', '-rw_timeout', '15000000'];
     const outputOpts = [
       '-preset veryfast',
       '-maxrate 3000k',
@@ -150,21 +165,16 @@ class Streamer {
       '-vf scale=1920:-2:force_original_aspect_ratio=decrease',
     ];
 
-    // Generate an external stream id
     const streamId = `url:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    // Helper to create a fresh input when needed (for fallback re-run)
     const makeInput = () => {
-      if (directResolvedUrl && typeof directResolvedUrl === 'string') {
-        return directResolvedUrl;
-      }
+      if (directResolvedUrl && typeof directResolvedUrl === 'string') return directResolvedUrl;
       if (isYouTube) {
         try {
           return ytdl(url, {
             quality: 'highest',
             filter: 'audioandvideo',
             highWaterMark: 1 << 25,
-            // Pass browser-like headers to improve resilience when yt-dlp resolution is blocked
             requestOptions: {
               maxRetries: 3,
               maxReconnects: 2,
@@ -172,11 +182,11 @@ class Streamer {
                 'user-agent': YTDLP_USER_AGENT,
                 'referer': 'https://www.youtube.com',
                 'origin': 'https://www.youtube.com',
+                ...(COOKIES_HEADER ? { 'cookie': COOKIES_HEADER } : {}),
               },
             },
           });
-        } catch (err) {
-          // As a last resort, let ffmpeg fetch the original URL
+        } catch (_) {
           return url;
         }
       }
@@ -184,7 +194,7 @@ class Streamer {
     };
 
     let attemptedTlsFallback = false;
-    let attemptedInputRefresh = false; // for HTTP 410/403 token expiry on YouTube direct URLs
+    let attemptedInputRefresh = false;
 
     return new Promise((resolve, reject) => {
       let currentOutputUrl = outputUrl;
@@ -196,21 +206,19 @@ class Streamer {
           const inputVal = makeInput();
           const extraInputOpts = [];
           if (typeof inputVal === 'string' && /^https?:\/\//i.test(inputVal)) {
-            // Improve resilience for HTTP/HLS inputs
             extraInputOpts.push('-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_at_eof', '1', '-reconnect_delay_max', '2');
-            // For YouTube inputs, add Referer/Origin headers to mimic browser
             try {
               const headers = [];
               if (/youtube\.com|youtu\.be/i.test(url)) {
                 headers.push('Referer: https://www.youtube.com');
                 headers.push('Origin: https://www.youtube.com');
+                if (COOKIES_HEADER) headers.push(`Cookie: ${COOKIES_HEADER}`);
               }
-              if (headers.length) {
-                extraInputOpts.push('-headers', headers.join('\r\n'));
-              }
+              if (headers.length) extraInputOpts.push('-headers', headers.join('\r\n'));
             } catch (_) {}
           }
-          command = (typeof inputVal === 'string' ? ffmpeg(inputVal) : ffmpeg(inputVal))
+
+          command = ffmpeg(inputVal)
             .inputOptions([...inputOpts, ...extraInputOpts])
             .outputOptions(outputOpts)
             .videoCodec('libx264')
@@ -224,7 +232,7 @@ class Streamer {
               try {
                 console.log(`[Streamer] FFmpeg started for external ${streamId}: ${cmdLine}`);
                 this.lastStreamErrors.delete(streamId);
-                const entry = {
+                this.activeStreams.set(streamId, {
                   command,
                   startedAt: new Date(),
                   progress: 0,
@@ -233,12 +241,9 @@ class Streamer {
                   outputUrl: outUrl,
                   external: true,
                   sourceUrl: url,
-                };
-                this.activeStreams.set(streamId, entry);
+                });
                 resolve({ streamId, command });
-              } catch (err) {
-                reject(err);
-              }
+              } catch (err) { reject(err); }
             })
             .on('progress', async (progress) => {
               try {
@@ -267,11 +272,10 @@ class Streamer {
                 console.error(`[Streamer] External end handler error for ${streamId}: ${err.message}`);
               }
             })
-            .on('error', async (err, _stdout, _stderr) => {
+            .on('error', async (err) => {
               try {
                 console.error(`[Streamer] FFmpeg error for external ${streamId}: ${err.message}`);
                 const msg = err && err.message ? err.message : 'Unknown streaming error';
-                // If initial attempt used RTMP and failed early, try RTMPS once.
                 const isRtmp = /^rtmp:\/\//i.test(currentOutputUrl);
                 const looksHandshake = /Error opening output file|I\/O error|Connection refused|Protocol not found|TLS|handshake|403/i.test(msg);
                 if (isRtmp && !attemptedTlsFallback && looksHandshake) {
@@ -279,22 +283,17 @@ class Streamer {
                   const tlsUrl = currentOutputUrl.replace(/^rtmp:\/\//i, 'rtmps://');
                   console.warn(`[Streamer] Attempting RTMPS fallback for ${streamId}: ${tlsUrl}`);
                   try {
-                    // Don't mark error yet; try fallback
-                    // Kill the failed command if still running
                     try { if (command) command.kill('SIGINT'); } catch (_) {}
-                    // Start again with RTMPS
                     return startWithOutput(tlsUrl);
                   } catch (fallbackErr) {
                     console.error(`[Streamer] RTMPS fallback failed for ${streamId}: ${fallbackErr.message}`);
                   }
                 }
-                // Input refresh for YouTube direct URLs when tokenized URL expires (HTTP 410/403)
                 const looksExpired = /(410|Gone|HTTP 410|403|Forbidden|signature).*?/i.test(msg);
                 if (isYouTube && !attemptedInputRefresh && looksExpired) {
                   attemptedInputRefresh = true;
                   console.warn(`[Streamer] Attempting YouTube input refresh for ${streamId} due to ${msg}`);
                   try {
-                    // Try re-resolving a fresh direct URL via yt-dlp
                     let newDirect = null;
                     if (ytdlp) {
                       try {
@@ -313,15 +312,9 @@ class Streamer {
                         newDirect = Array.isArray(out) ? (out[0] || '').trim() : String(out || '').trim();
                       } catch (_) {}
                     }
-                    if (!newDirect) {
-                      try { newDirect = await resolveViaYtdlpBin(url); } catch (_) {}
-                    }
-                    // If re-resolve fails, fall back to ytdl stream
-                    if (!newDirect) {
-                      try { newDirect = null; } catch (_) {}
-                    }
-                    directResolvedUrl = newDirect; // may be null, in which case makeInput() uses ytdl stream
-                    // Restart with same output URL
+                    if (!newDirect) { try { newDirect = await resolveViaYtdlpBin(url); } catch (_) {} }
+                    if (!newDirect) { try { newDirect = null; } catch (_) {} }
+                    directResolvedUrl = newDirect;
                     try { if (command) command.kill('SIGINT'); } catch (_) {}
                     console.warn(`[Streamer] Restarting external ${streamId} with refreshed input`);
                     return startWithOutput(currentOutputUrl);
@@ -329,19 +322,15 @@ class Streamer {
                     console.error(`[Streamer] Input refresh failed for ${streamId}: ${refreshErr.message}`);
                   }
                 }
-                // No fallback or fallback also failed
                 this.lastStreamErrors.set(streamId, msg);
                 this.activeStreams.delete(streamId);
               } catch (_) {}
             });
 
           command.run();
-        } catch (startErr) {
-          reject(startErr);
-        }
+        } catch (startErr) { reject(startErr); }
       };
 
-      // initial start
       startWithOutput(outputUrl);
     });
   }

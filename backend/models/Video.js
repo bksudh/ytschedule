@@ -34,6 +34,10 @@ const VideoSchema = new mongoose.Schema(
     createdBy: { type: String },
     // Loop this video continuously when streaming (until manual stop or stopTime)
     loop: { type: Boolean, default: false },
+    // Optional thumbnail metadata
+    thumbnailPath: { type: String, trim: true },
+    thumbnailUrl: { type: String, trim: true },
+    overlayConfig: { type: mongoose.Schema.Types.Mixed },
   },
   {
     timestamps: true,

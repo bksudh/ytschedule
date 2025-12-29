@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
-# Install FFmpeg (required for video streaming)
-RUN apk add --no-cache ffmpeg
+# Install FFmpeg and yt-dlp for robust YouTube URL extraction
+RUN apk add --no-cache ffmpeg yt-dlp python3
 
 # Set working directory
 WORKDIR /app

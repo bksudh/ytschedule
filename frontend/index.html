@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>YouTube Live Streaming Scheduler</title>
     <link rel="stylesheet" href="css/style.css" />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
@@ -11,29 +12,28 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   </head>
   <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header class="app-header">
-      <div class="branding">
-        <i class="fa-solid fa-tower-broadcast"></i>
-        <h1>YouTube Live Streaming Scheduler</h1>
-      </div>
-      <div class="status-bar">
-        <span class="status-item"><i class="fa-regular fa-heart"></i> <span id="health-status">Checking…</span></span>
-        <span class="status-item"><i class="fa-solid fa-signal"></i> Active Streams: <span id="streams-count">—</span></span>
-        <span class="status-item" style="margin-left:auto;">
+      <div class="topbar">
+        <div class="branding">
+          <i class="fa-brands fa-youtube"></i>
+          <h1>YouTube Live Streaming Scheduler</h1>
+        </div>
+        <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
+          <button class="nav-link" data-view="active"><i class="fa-solid fa-signal"></i> Active Streams <span id="nav-active-count" class="badge-pill">0</span></button>
+          <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
+          <button class="nav-link" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
+          <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
+          <button class="nav-link" data-view="overlay"><i class="fa-solid fa-layer-group"></i> Overlay Studio</button>
+        </nav>
+        <div class="actions">
+          <span class="status-item"><span id="health-status">Checking…</span></span>
           <button id="theme-toggle" class="btn small" title="Toggle theme"><i class="fa-regular fa-moon"></i> Dark</button>
-        </span>
+        </div>
       </div>
     </header>
 
-    <!-- Main Navigation -->
-    <nav id="main-nav" class="main-nav" role="navigation" aria-label="Primary">
-      <button class="nav-link" data-view="active"><i class="fa-solid fa-signal"></i> Active Streams <span id="nav-active-count" class="badge-pill">0</span></button>
-      <button class="nav-link" data-view="playlist"><i class="fa-solid fa-list"></i> Playlist</button>
-      <button class="nav-link active" data-view="live"><i class="fa-solid fa-signal"></i> Live Stream</button>
-      <button class="nav-link" data-view="library"><i class="fa-regular fa-folder"></i> Video Library</button>
-    </nav>
-
-    <main class="container">
+    <main id="main-content" class="container">
       <!-- Active Streams Section -->
       <section id="section-active-streams" class="card" aria-labelledby="active-streams-title">
         <div class="section-header">
@@ -41,8 +41,20 @@
         </div>
         <div id="active-streams-list" class="grid" aria-live="polite"></div>
         <div id="active-streams-empty" class="empty" hidden>
-          <i class="fa-regular fa-face-smile"></i>
-          <p>No active streams right now.</p>
+          <div class="hero">
+            <div class="hero-graphics">
+              <img src="img/robot.svg" alt="" class="hero-bot" />
+              <i class="fa-brands fa-youtube hero-yt"></i>
+              <i class="fa-regular fa-clock hero-clock"></i>
+              <span class="star s1"></span><span class="star s2"></span><span class="star s3"></span><span class="star s4"></span><span class="star s5"></span><span class="star s6"></span><span class="star s7"></span><span class="star s8"></span><span class="star s9"></span><span class="star s10"></span><span class="star s11"></span><span class="star s12"></span>
+            </div>
+            <p>No active live streams right now.</p>
+            <div class="hero-footer">
+              <a href="#" class="hero-link">Instructions</a>
+              <a href="#" class="hero-link">GitHub</a>
+              <span class="hero-tagline">Love bright show.</span>
+            </div>
+          </div>
         </div>
       </section>
       <!-- Stream from URL Section -->
@@ -52,33 +64,28 @@
         </div>
         <form id="url-stream-form" class="form-grid">
           <div class="form-row">
-            <label for="url-source">YouTube Video URL</label>
-            <input id="url-source" type="url" name="sourceUrl" placeholder="https://www.youtube.com/watch?v=..." required />
+            <label class="float"><input id="url-source" type="url" name="sourceUrl" placeholder=" " required /><span>YouTube Video URL</span></label>
             <small>Public videos recommended. Age-restricted content may fail.</small>
           </div>
           <div class="form-row">
-            <label for="url-rtmpUrl">RTMP URL</label>
-            <input id="url-rtmpUrl" type="text" name="rtmpUrl" value="rtmps://a.rtmp.youtube.com/live2" required />
+            <label class="float"><input id="url-rtmpUrl" type="text" name="rtmpUrl" placeholder=" " value="rtmps://a.rtmp.youtube.com/live2" required /><span>RTMP URL</span></label>
           </div>
           <div class="form-row">
-            <label for="url-streamKey">Stream Key</label>
-            <input id="url-streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+            <label class="float"><input id="url-streamKey" type="password" name="streamKey" placeholder=" " required /><span>Stream Key</span></label>
             <small>
               Find it in YouTube Live Control Room. <a href="#" id="yt-help-link">Need help?</a>
             </small>
           </div>
           <div class="form-row">
-            <label for="url-scheduleStart">Schedule Start (UTC)</label>
-            <input id="url-scheduleStart" type="datetime-local" name="scheduleTime" />
+            <label class="float"><input id="url-scheduleStart" type="datetime-local" name="scheduleTime" placeholder=" " /><span>Schedule Start (UTC)</span></label>
             <small>Leave empty to start immediately.</small>
           </div>
           <div class="form-row">
-            <label for="url-scheduleStop">Stop Time (optional, UTC)</label>
-            <input id="url-scheduleStop" type="datetime-local" name="stopTime" />
+            <label class="float"><input id="url-scheduleStop" type="datetime-local" name="stopTime" placeholder=" " /><span>Stop Time (UTC)</span></label>
             <small>Auto-stop external stream at this time.</small>
           </div>
           <div class="form-actions">
-            <button type="submit" id="url-start-btn" class="btn primary"><i class="fa-solid fa-play"></i> Start from URL</button>
+            <button type="submit" id="url-start-btn" class="btn primary"><i class="fa-brands fa-youtube"></i> Start from URL</button>
             <button type="button" id="url-stop-btn" class="btn" hidden><i class="fa-solid fa-stop"></i> Stop</button>
             <button type="button" id="url-schedule-btn" class="btn outline"><i class="fa-regular fa-calendar"></i> Schedule from URL</button>
             <button type="button" id="url-cancel-schedule-btn" class="btn outline"><i class="fa-regular fa-calendar-xmark"></i> Cancel Schedule</button>
@@ -135,35 +142,49 @@
         </div>
         <form id="upload-form" class="form-grid">
           <div class="form-row">
-            <label for="title">Video Title</label>
-            <input id="title" type="text" name="title" placeholder="My Awesome Stream" required />
+            <label class="float"><input id="title" type="text" name="title" placeholder=" " required /><span>Video Title</span></label>
           </div>
 
           <div class="form-row">
-            <label for="file">Video File</label>
-            <input id="file" type="file" name="file" accept="video/*" required />
+            <label class="checkbox">
+              <input id="use-library-source" type="checkbox" name="useLibrary" />
+              <span>Use existing video from Library (no re-upload)</span>
+            </label>
+          </div>
+
+          <div class="form-row" id="library-source-row" hidden>
+            <label class="float">
+              <select id="library-source-select" name="librarySource">
+                <option value="">Select a Library video…</option>
+              </select>
+              <span>Library Video</span>
+            </label>
+            <small id="library-empty-hint" hidden>
+              No Library videos found. <a href="#" id="go-library-link">Add to Library</a>
+            </small>
+            <small id="library-present-hint">Pick a saved video to schedule directly.</small>
+          </div>
+
+          <div class="form-row">
+            <label class="float"><input id="file" type="file" name="file" accept="video/*" placeholder=" " required /><span>Video File</span></label>
             <small id="file-info"><span id="file-size">—</span> • Estimated upload: <span id="upload-estimate">—</span></small>
           </div>
 
           <div class="form-row">
-            <label for="scheduledAt">Schedule Date &amp; Time</label>
-            <input id="scheduledAt" type="datetime-local" name="scheduledAt" required />
+            <label class="float"><input id="scheduledAt" type="datetime-local" name="scheduledAt" placeholder=" " required /><span>Schedule Date &amp; Time</span></label>
           </div>
 
           <div class="form-row">
-            <label for="stopAt">Stop At (optional)</label>
-            <input id="stopAt" type="datetime-local" name="stopAt" />
+            <label class="float"><input id="stopAt" type="datetime-local" name="stopAt" placeholder=" " /><span>Stop At (optional)</span></label>
             <small>Stream will auto-stop at this time.</small>
           </div>
 
           <div class="form-row">
-            <label for="rtmpUrl">RTMP URL</label>
-            <input id="rtmpUrl" type="text" name="rtmpUrl" value="rtmps://a.rtmp.youtube.com/live2" required />
+            <label class="float"><input id="rtmpUrl" type="text" name="rtmpUrl" placeholder=" " value="rtmps://a.rtmp.youtube.com/live2" required /><span>RTMP URL</span></label>
           </div>
 
           <div class="form-row">
-            <label for="streamKey">Stream Key</label>
-            <input id="streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+            <label class="float"><input id="streamKey" type="password" name="streamKey" placeholder=" " required /><span>Stream Key</span></label>
           </div>
           <div class="form-row">
             <label class="checkbox">
@@ -218,14 +239,15 @@
           <h2 id="videos-title"><i class="fa-solid fa-film"></i> Videos</h2>
           <div class="controls">
             <div class="filters" id="filter-buttons" role="group" aria-label="Filters">
-              <button class="btn filter active" data-status="">All</button>
-              <button class="btn filter" data-status="library">Library</button>
-              <button class="btn filter" data-status="scheduled">Scheduled</button>
-              <button class="btn filter" data-status="streaming">Streaming</button>
-              <button class="btn filter" data-status="completed">Completed</button>
-              <button class="btn filter" data-status="failed">Failed</button>
+              <button class="btn filter active" data-status=""><i class="fa-solid fa-border-all"></i> All</button>
+              <button class="btn filter" data-status="library"><i class="fa-regular fa-folder"></i> Library</button>
+              <button class="btn filter" data-status="scheduled"><i class="fa-regular fa-clock"></i> Scheduled</button>
+              <button class="btn filter" data-status="streaming"><i class="fa-solid fa-signal"></i> Streaming</button>
+              <button class="btn filter" data-status="completed"><i class="fa-regular fa-circle-check"></i> Completed</button>
+              <button class="btn filter" data-status="failed"><i class="fa-regular fa-circle-xmark"></i> Failed</button>
             </div>
             <div class="search">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
               <input id="search-input" type="search" placeholder="Search by title…" />
             </div>
           </div>
@@ -235,9 +257,185 @@
         <!-- Back-compat list for existing JS -->
         <ul id="videos-list" class="legacy-list" hidden></ul>
 
-        <div id="empty-state" class="empty" hidden>
-          <i class="fa-regular fa-face-sad-tear"></i>
+        <div id="empty-state" class="empty empty-library" hidden>
+          <div class="empty-illustration">
+            <img src="img/robot.svg" alt="" />
+          </div>
           <p>No videos found. Upload one to get started.</p>
+        </div>
+      </section>
+      <!-- Overlay Studio -->
+      <section id="section-overlay" class="card" aria-labelledby="overlay-title" hidden>
+        <div class="section-header">
+          <h2 id="overlay-title"><i class="fa-solid fa-layer-group"></i> Overlay Studio</h2>
+        </div>
+        <div class="overlay-grid">
+          <div class="overlay-controls">
+            <div class="overlay-head">
+              <div class="form-row">
+                <label class="float"><select id="ov-target"><option value="">Select target video…</option></select><span>Target Video</span></label>
+              </div>
+              <div class="form-actions">
+                <button id="ov-connect" class="btn outline"><i class="fa-solid fa-plug"></i> Connect</button>
+                <span id="ov-conn-status" class="status"></span>
+              </div>
+            </div>
+            <details class="overlay-panel" open>
+              <summary><i class="fa-solid fa-up-right-and-down-left-from-center"></i> Canvas</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-width" type="number" min="320" step="1" value="1280" /><span>Width</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-height" type="number" min="240" step="1" value="720" /><span>Height</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-scale" type="number" min="0.5" max="3" step="0.1" value="1" /><span>Scale</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-bg" type="color" value="#000000" /><span>Background</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-bg-opa" type="range" min="0" max="1" step="0.05" value="0" /><span>Background Opacity</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel" open>
+              <summary><i class="fa-solid fa-scroll"></i> Ticker</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-text" type="text" placeholder=" " /><span>Ticker Text</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-speed" type="number" min="10" max="600" step="10" value="120" /><span>Ticker Speed</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-font" type="text" value="Segoe UI" /><span>Ticker Font</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-size" type="number" min="10" max="96" step="1" value="24" /><span>Ticker Size</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-color" type="color" value="#ffffff" /><span>Ticker Color</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-ticker-pos">
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-bg" type="color" value="#000000" /><span>Ticker BG</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-ticker-opa" type="range" min="0" max="1" step="0.05" value="0.4" /><span>Ticker BG Opacity</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-clock"></i> Clock</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-clock-enable" type="checkbox" /><span>Show Clock</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-clock-format">
+                    <option value="24">24h</option>
+                    <option value="12">12h</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-clock-date" type="checkbox" /><span>Show Date</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-color" type="color" value="#ffffff" /><span>Clock Color</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-clock-size" type="number" min="10" max="96" step="1" value="20" /><span>Clock Size</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-bolt-lightning"></i> Logo</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-logo-url" type="text" placeholder=" " /><span>Logo URL</span></label>
+                </div>
+                <div class="form-row">
+                  <select id="ov-logo-pos">
+                    <option value="tl">Top-Left</option>
+                    <option value="tr">Top-Right</option>
+                    <option value="bl">Bottom-Left</option>
+                    <option value="br">Bottom-Right</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-logo-size" type="number" min="20" max="400" value="80" /><span>Logo Size</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-logo-opa" type="range" min="0" max="1" step="0.05" value="0.8" /><span>Logo Opacity</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-id-badge"></i> Lower Third</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-lt-title" type="text" placeholder=" " /><span>Lower Third Title</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-lt-sub" type="text" placeholder=" " /><span>Lower Third Subtitle</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-lt-show" type="checkbox" /><span>Show Lower Third</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-trophy"></i> Scoreboard</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-score-a" type="text" placeholder=" " /><span>Team A</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-score-b" type="text" placeholder=" " /><span>Team B</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-score-a-val" type="number" value="0" /><span>Score A</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-score-b-val" type="number" value="0" /><span>Score B</span></label>
+                </div>
+              </div>
+            </details>
+            <details class="overlay-panel">
+              <summary><i class="fa-solid fa-triangle-exclamation"></i> Alert Banner</summary>
+              <div class="panel-body">
+                <div class="form-row">
+                  <label class="float"><input id="ov-banner-text" type="text" placeholder=" " /><span>Alert Banner</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox"><input id="ov-banner-show" type="checkbox" /><span>Show Banner</span></label>
+                </div>
+              </div>
+            </details>
+            <div class="overlay-actions">
+              <div class="form-actions">
+                <button id="ov-start" class="btn success"><i class="fa-solid fa-play"></i> Start</button>
+                <button id="ov-stop" class="btn warning"><i class="fa-solid fa-stop"></i> Stop</button>
+                <button id="ov-reset" class="btn outline"><i class="fa-solid fa-rotate"></i> Reset</button>
+                <button id="ov-save" class="btn outline"><i class="fa-regular fa-floppy-disk"></i> Save</button>
+                <button id="ov-load" class="btn outline"><i class="fa-regular fa-folder-open"></i> Load</button>
+              </div>
+              <div id="ov-message" class="message" role="alert" aria-live="polite"></div>
+            </div>
+          </div>
+          <div class="overlay-canvas-wrap">
+            <div class="overlay-preview-head">
+              <span class="status">Preview</span>
+            </div>
+            <canvas id="overlay-canvas" width="1280" height="720"></canvas>
+          </div>
         </div>
       </section>
 
@@ -301,7 +499,7 @@
       (function () { var y = document.getElementById('year'); if (y) y.textContent = new Date().getFullYear(); })();
     </script>
 
-    <script src="js/config.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/config.js" defer></script>
+    <script src="js/app.js" defer></script>
   </body>
   </html>
