@@ -4,6 +4,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const cron = require('node-cron');
+const crypto = require('crypto');
 let MongoMemoryServer = null;
 try {
   // Loaded lazily to avoid requiring the package in environments where it's not installed
@@ -45,6 +46,7 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || '';
+const AUTH_SECRET = process.env.AUTH_SECRET || 'yt-auth-secret';
 
 let dbStatus = 'disconnected';
 let cronTask = null;
@@ -96,10 +98,84 @@ mongoose.connection.on('error', (err) => {
 
 connectWithRetry(1, 3);
 
+function parseCookies(header) {
+  const out = {};
+  const h = String(header || '');
+  if (!h) return out;
+  const parts = h.split(';');
+  for (const p of parts) {
+    const idx = p.indexOf('=');
+    if (idx === -1) continue;
+    const k = p.slice(0, idx).trim();
+    const v = p.slice(idx + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
+function signValue(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('hex');
+  return `${data}.${sig}`;
+}
+function verifyValue(val) {
+  const s = String(val || '');
+  const idx = s.lastIndexOf('.');
+  if (idx <= 0) return null;
+  const data = s.slice(0, idx);
+  const sig = s.slice(idx + 1);
+  const expect = crypto.createHmac('sha256', AUTH_SECRET).update(data).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+  try {
+    const json = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
+    return json;
+  } catch (_) {
+    return null;
+  }
+}
+function attachUser(req, _res, next) {
+  req.user = null;
+  const cookies = parseCookies(req.headers.cookie);
+  const raw = cookies['yt_auth'];
+  if (raw) {
+    const payload = verifyValue(raw);
+    if (payload && payload.u === 'admin') {
+      req.user = { username: 'admin' };
+    }
+  }
+  next();
+}
+function requireAuth(req, res, next) {
+  if (req.user && req.user.username === 'admin') return next();
+  res.status(401).json({ error: 'Unauthorized' });
+}
+app.use(attachUser);
+
+app.post('/api/auth/login', (req, res) => {
+  const u = String(req.body.username || req.body.user || '');
+  const p = String(req.body.password || req.body.pass || '');
+  if (u !== 'admin' || p !== 'sakash2024') {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  const token = signValue({ u: 'admin', ts: Date.now() });
+  const maxAge = 7 * 24 * 60 * 60;
+  res.setHeader('Set-Cookie', `yt_auth=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}`);
+  res.json({ ok: true, user: { username: 'admin' } });
+});
+app.post('/api/auth/logout', (_req, res) => {
+  res.setHeader('Set-Cookie', 'yt_auth=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0');
+  res.json({ ok: true });
+});
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  res.json({ user: req.user });
+});
+
 const videosRouter = require('./routes/videos');
-app.use('/api/videos', videosRouter);
+app.use('/api/videos', requireAuth, videosRouter);
 const playlistsRouter = require('./routes/playlists');
-app.use('/api/playlists', playlistsRouter);
+app.use('/api/playlists', requireAuth, playlistsRouter);
+const keysRouter = require('./routes/keys');
+app.use('/api/keys', requireAuth, keysRouter);
 
 const streamer = require('./utils/streamer');
 const Video = require('./models/Video');
@@ -116,7 +192,7 @@ app.get('/api/health', healthHandler);
 app.get('/health', healthHandler);
 
 // Active streams listing (videos + external URL jobs)
-app.get('/api/streams/active', async (req, res) => {
+app.get('/api/streams/active', requireAuth, async (req, res) => {
   try {
     const ids = streamer.getAllActiveStreams();
     const out = [];

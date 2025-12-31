@@ -7,8 +7,13 @@ const publicDir = __dirname;
 const argPortIdx = process.argv.indexOf('--port');
 const argPort = (argPortIdx !== -1 && process.argv[argPortIdx + 1]) ? Number(process.argv[argPortIdx + 1]) : null;
 const port = (Number.isFinite(argPort) && argPort > 0 ? argPort : (Number(process.env.PORT) || 5173));
+// Allow overriding backend target port via env or CLI (--backend <port>)
+const argBackendIdx = process.argv.indexOf('--backend');
+const argBackend = (argBackendIdx !== -1 && process.argv[argBackendIdx + 1]) ? Number(process.argv[argBackendIdx + 1]) : null;
+const backendPort = (Number.isFinite(argBackend) && argBackend > 0 ? argBackend : (Number(process.env.BACKEND_PORT) || 3000));
 console.log('[DevServer] argv:', process.argv);
 console.log('[DevServer] using port:', port);
+console.log('[DevServer] proxying /api to backend port:', backendPort);
 
 const mimeTypes = {
   '.html': 'text/html',
@@ -27,7 +32,7 @@ const server = http.createServer((req, res) => {
   // Simple proxy for API calls to backend on localhost:3000
   if (urlPath.startsWith('/api/')) {
     const targetHost = 'localhost';
-    const targetPort = 3000;
+    const targetPort = backendPort;
     const options = {
       hostname: targetHost,
       port: targetPort,

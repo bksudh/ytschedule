@@ -85,6 +85,26 @@
     urlScheduleStop: document.getElementById('url-scheduleStop'),
     urlScheduleBtn: document.getElementById('url-schedule-btn'),
     urlCancelScheduleBtn: document.getElementById('url-cancel-schedule-btn'),
+    urlSavedKeys: document.getElementById('url-saved-keys'),
+    urlUseSavedKey: document.getElementById('url-use-saved-key'),
+    urlDeleteSavedKey: document.getElementById('url-delete-saved-key'),
+    urlKeyName: document.getElementById('url-key-name'),
+    urlSaveKey: document.getElementById('url-save-key'),
+    sectionLogin: document.getElementById('section-login'),
+    loginForm: document.getElementById('login-form'),
+    loginUser: document.getElementById('login-user'),
+    loginPass: document.getElementById('login-pass'),
+    loginMessage: document.getElementById('login-message'),
+    playlistSavedKeys: document.getElementById('playlist-saved-keys'),
+    playlistUseSavedKey: document.getElementById('playlist-use-saved-key'),
+    playlistDeleteSavedKey: document.getElementById('playlist-delete-saved-key'),
+    playlistKeyName: document.getElementById('playlist-key-name'),
+    playlistSaveKey: document.getElementById('playlist-save-key'),
+    uploadSavedKeys: document.getElementById('upload-saved-keys'),
+    uploadUseSavedKey: document.getElementById('upload-use-saved-key'),
+    uploadDeleteSavedKey: document.getElementById('upload-delete-saved-key'),
+    uploadKeyName: document.getElementById('upload-key-name'),
+    uploadSaveKey: document.getElementById('upload-save-key'),
     overlaySection: document.getElementById('section-overlay'),
     ovCanvas: document.getElementById('overlay-canvas'),
     ovWidth: document.getElementById('ov-width'),
@@ -172,13 +192,72 @@
    * @returns {Promise<any>}
    */
   async function fetchJSON(url, options) {
-    const res = await fetch(url, { cache: 'no-store', ...(options || {}) });
+    const res = await fetch(url, { cache: 'no-store', credentials: 'include', ...(options || {}) });
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
-      try { msg = await res.text(); } catch (_) {}
+      try {
+        const text = await res.text();
+        if (text) {
+          try {
+            const j = JSON.parse(text);
+            msg = (j && (j.error || j.message)) ? (j.error || j.message) : text;
+          } catch (_) {
+            msg = text;
+          }
+        }
+      } catch (_) {}
       throw new Error(msg || `HTTP ${res.status}`);
     }
     return res.json();
+  }
+
+  async function isAuthed() {
+    try {
+      const r = await fetchJSON(`${API_URL}/auth/me`);
+      return !!(r && r.user);
+    } catch (_) {
+      return false;
+    }
+  }
+  function setAuthState(auth) {
+    const authed = !!auth;
+    if (el.sectionLogin) el.sectionLogin.hidden = authed;
+    if (!authed) {
+      if (el.nav) el.nav.style.display = 'none';
+      if (el.sectionActiveStreams) el.sectionActiveStreams.hidden = true;
+      if (el.sectionUrlStream) el.sectionUrlStream.hidden = true;
+      if (el.sectionPlaylistForm) el.sectionPlaylistForm.hidden = true;
+      if (el.sectionUpload) el.sectionUpload.hidden = true;
+      if (el.sectionLibraryUpload) el.sectionLibraryUpload.hidden = true;
+      if (el.sectionVideos) el.sectionVideos.hidden = true;
+      if (el.overlaySection) el.overlaySection.hidden = true;
+    } else {
+      if (el.nav) el.nav.style.display = '';
+    }
+  }
+  function setupLogin() {
+    if (!el.loginForm) return;
+    el.loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const u = el.loginUser ? (el.loginUser.value || '').trim() : '';
+      const p = el.loginPass ? (el.loginPass.value || '').trim() : '';
+      if (!u || !p) {
+        if (el.loginMessage) { el.loginMessage.textContent = 'Enter username and password'; el.loginMessage.className = 'message error'; }
+        return;
+      }
+      try {
+        await fetchJSON(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p }),
+        });
+        if (el.loginMessage) { el.loginMessage.textContent = 'Logged in'; el.loginMessage.className = 'message success'; }
+        setAuthState(true);
+        await initMain();
+      } catch (err) {
+        if (el.loginMessage) { el.loginMessage.textContent = String(err && err.message ? err.message : 'Login failed'); el.loginMessage.className = 'message error'; }
+      }
+    });
   }
 
   /**
@@ -428,6 +507,7 @@
         await Promise.all([loadActiveStreams(), loadVideos()]);
       } catch (err) {
         showToast(`Failed to stop: ${err.message}`, 'error');
+        try { await Promise.all([loadActiveStreams(), loadVideos()]); } catch (_) {}
       } finally {
         btn.disabled = false; btn.classList.remove('loading');
       }
@@ -509,6 +589,85 @@
           }
           return;
         }
+        const thumbUrl = await regenerateThumbnail(id);
+        if (thumbUrl) {
+          if (imgEl) { imgEl.src = thumbUrl; imgEl.style.display = ''; }
+          else {
+            const ni = document.createElement('img');
+            ni.src = thumbUrl;
+            ni.alt = '';
+            const container = card.querySelector('.thumb');
+            const tag = container.querySelector('.tag');
+            if (tag) container.insertBefore(ni, tag); else container.appendChild(ni);
+          }
+        }
+      } catch (_) {}
+    };
+    if (!imgEl) {
+      ensurePreview();
+    } else {
+      let loaded = false;
+      imgEl.addEventListener('load', () => { loaded = true; });
+      imgEl.addEventListener('error', () => { handleThumbError(id, imgEl, card); }, { once: true });
+      setTimeout(() => { if (!loaded || imgEl.naturalWidth === 0) ensurePreview(); }, 800);
+    }
+    return card;
+  }
+
+  /** Escape HTML */
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+  async function tryHead(url) {
+    try {
+      const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+      return res.ok;
+    } catch (_) {
+      return false;
+    }
+  }
+  async function regenerateThumbnail(id) {
+    try {
+      const out = await fetchJSON(`${API_URL}/videos/${id}/thumbnail/regenerate`, { method: 'POST' });
+      return out && out.thumbnailUrl ? out.thumbnailUrl : `${API_URL}/videos/${id}/thumbnail`;
+    } catch (_) {
+      return `${API_URL}/videos/${id}/thumbnail`;
+    }
+  }
+  async function handleThumbError(id, imgEl, card) {
+    try {
+      const newUrl = await regenerateThumbnail(id);
+      if (imgEl) {
+        imgEl.src = newUrl;
+        imgEl.style.display = '';
+        return;
+      } else {
+        const ni = document.createElement('img');
+        ni.src = newUrl;
+        ni.alt = '';
+        const container = card.querySelector('.thumb');
+        const tag = container.querySelector('.tag');
+        if (tag) container.insertBefore(ni, tag); else container.appendChild(ni);
+        return;
+      }
+    } catch (_) {}
+    const ensurePreview = async () => {
+      try {
+        if (previewCache.has(id)) {
+          const dataUrl = previewCache.get(id);
+          if (dataUrl) {
+            if (imgEl) { imgEl.src = dataUrl; imgEl.style.display = ''; }
+            else {
+              const ni = document.createElement('img');
+              ni.src = dataUrl;
+              ni.alt = '';
+              const container = card.querySelector('.thumb');
+              const tag = container.querySelector('.tag');
+              if (tag) container.insertBefore(ni, tag); else container.appendChild(ni);
+            }
+          }
+          return;
+        }
         const dataUrl = await generateVideoPreview(id);
         if (dataUrl) {
           previewCache.set(id, dataUrl);
@@ -524,20 +683,7 @@
         }
       } catch (_) {}
     };
-    if (!imgEl) {
-      ensurePreview();
-    } else {
-      let loaded = false;
-      imgEl.addEventListener('load', () => { loaded = true; });
-      imgEl.addEventListener('error', () => { ensurePreview(); }, { once: true });
-      setTimeout(() => { if (!loaded || imgEl.naturalWidth === 0) ensurePreview(); }, 800);
-    }
-    return card;
-  }
-
-  /** Escape HTML */
-  function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    await ensurePreview();
   }
   async function generateVideoPreview(id) {
     try {
@@ -546,9 +692,9 @@
         const v = document.createElement('video');
         v.src = url;
         v.muted = true;
-        v.preload = 'auto';
+        v.preload = 'metadata';
         v.playsInline = true;
-        const cleanup = () => { try { v.pause(); } catch (_) {} v.src = ''; v.remove(); };
+        const cleanup = () => { try { v.pause(); } catch (_) {} try { v.removeAttribute('src'); v.load(); } catch (_) {} try { v.remove(); } catch (_) {} };
         const onSeeked = () => {
           try {
             const vw = v.videoWidth || 480;
@@ -1132,6 +1278,7 @@
       await loadVideos();
     } catch (err) {
       showToast(`Failed to stop: ${err.message}`, 'error');
+      try { await loadVideos(); } catch (_) {}
     }
   }
   async function deleteVideo(id) {
@@ -1326,6 +1473,7 @@
   let externalStreamId = '';
   let urlStatusTimer = null;
   let scheduledJobId = '';
+  let savedKeys = [];
   function setUrlMessage(text, cls = 'info') {
     if (!el.urlMsg) return;
     el.urlMsg.textContent = text;
@@ -1506,6 +1654,205 @@
   }
   function stopUrlStatusPoll() {
     if (urlStatusTimer) { clearInterval(urlStatusTimer); urlStatusTimer = null; }
+  }
+
+  function populateSavedKeysSelect(select) {
+    if (!select) return;
+    const prev = select.value || '';
+    select.innerHTML = '<option value="">Select saved key…</option>';
+    const frag = document.createDocumentFragment();
+    (savedKeys || []).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = String(k._id || '');
+      opt.textContent = String(k.name || '');
+      frag.appendChild(opt);
+    });
+    select.appendChild(frag);
+    if (prev) select.value = prev;
+  }
+  async function loadSavedKeys() {
+    try {
+      const items = await fetchJSON(`${API_URL}/keys`);
+      savedKeys = Array.isArray(items) ? items : [];
+      populateSavedKeysSelect(el.urlSavedKeys);
+      populateSavedKeysSelect(el.playlistSavedKeys);
+      populateSavedKeysSelect(el.uploadSavedKeys);
+    } catch (_) {
+      savedKeys = [];
+      populateSavedKeysSelect(el.urlSavedKeys);
+      populateSavedKeysSelect(el.playlistSavedKeys);
+      populateSavedKeysSelect(el.uploadSavedKeys);
+    }
+  }
+  function getSavedKeyById(id) {
+    const sid = String(id || '');
+    return (savedKeys || []).find(k => String(k._id || '') === sid) || null;
+  }
+  function setupSavedKeysUI() {
+    if (el.urlUseSavedKey) {
+      el.urlUseSavedKey.addEventListener('click', () => {
+        const id = el.urlSavedKeys?.value || '';
+        const k = getSavedKeyById(id);
+        if (!k) { showToast('Select a saved key', 'info'); return; }
+        if (el.urlRtmp) el.urlRtmp.value = String(k.rtmpUrl || '');
+        if (el.urlKey) el.urlKey.value = String(k.streamKey || '');
+        showToast('Applied saved key', 'success');
+      });
+    }
+    if (el.urlSaveKey) {
+      el.urlSaveKey.addEventListener('click', async () => {
+        const name = el.urlKeyName?.value?.trim() || '';
+        const rtmpUrl = el.urlRtmp?.value?.trim() || '';
+        const streamKey = el.urlKey?.value?.trim() || '';
+        if (!name) { showToast('Enter a name', 'error'); return; }
+        if (!rtmpUrl) { showToast('Enter RTMP URL', 'error'); return; }
+        if (!streamKey || streamKey.length < 8) { showToast('Key must be >= 8 chars', 'error'); return; }
+        el.urlSaveKey.disabled = true; el.urlSaveKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, rtmpUrl, streamKey })
+          });
+          el.urlKeyName.value = '';
+          await loadSavedKeys();
+          showToast('Saved key', 'success');
+        } catch (err) {
+          showToast(`Save failed: ${err.message}`, 'error');
+        } finally {
+          el.urlSaveKey.disabled = false; el.urlSaveKey.classList.remove('loading');
+        }
+      });
+    }
+    if (el.urlDeleteSavedKey) {
+      el.urlDeleteSavedKey.addEventListener('click', async () => {
+        const id = el.urlSavedKeys?.value || '';
+        if (!id) { showToast('Select a saved key', 'info'); return; }
+        const ok = confirm('Delete this saved key?');
+        if (!ok) return;
+        el.urlDeleteSavedKey.disabled = true; el.urlDeleteSavedKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys/${id}`, { method: 'DELETE' });
+          await loadSavedKeys();
+          showToast('Deleted', 'warn');
+        } catch (err) {
+          showToast(`Delete failed: ${err.message}`, 'error');
+        } finally {
+          el.urlDeleteSavedKey.disabled = false; el.urlDeleteSavedKey.classList.remove('loading');
+        }
+      });
+    }
+    if (el.playlistUseSavedKey) {
+      el.playlistUseSavedKey.addEventListener('click', () => {
+        const id = el.playlistSavedKeys?.value || '';
+        const k = getSavedKeyById(id);
+        if (!k) { showToast('Select a saved key', 'info'); return; }
+        const rtmpEl = document.getElementById('playlist-rtmpUrl');
+        const keyEl = document.getElementById('playlist-streamKey');
+        if (rtmpEl) rtmpEl.value = String(k.rtmpUrl || '');
+        if (keyEl) keyEl.value = String(k.streamKey || '');
+        showToast('Applied saved key', 'success');
+      });
+    }
+    if (el.playlistSaveKey) {
+      el.playlistSaveKey.addEventListener('click', async () => {
+        const name = el.playlistKeyName?.value?.trim() || '';
+        const rtmpEl = document.getElementById('playlist-rtmpUrl');
+        const keyEl = document.getElementById('playlist-streamKey');
+        const rtmpUrl = rtmpEl?.value?.trim() || '';
+        const streamKey = keyEl?.value?.trim() || '';
+        if (!name) { showToast('Enter a name', 'error'); return; }
+        if (!rtmpUrl) { showToast('Enter RTMP URL', 'error'); return; }
+        if (!streamKey || streamKey.length < 8) { showToast('Key must be >= 8 chars', 'error'); return; }
+        el.playlistSaveKey.disabled = true; el.playlistSaveKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, rtmpUrl, streamKey })
+          });
+          el.playlistKeyName.value = '';
+          await loadSavedKeys();
+          showToast('Saved key', 'success');
+        } catch (err) {
+          showToast(`Save failed: ${err.message}`, 'error');
+        } finally {
+          el.playlistSaveKey.disabled = false; el.playlistSaveKey.classList.remove('loading');
+        }
+      });
+    }
+    if (el.playlistDeleteSavedKey) {
+      el.playlistDeleteSavedKey.addEventListener('click', async () => {
+        const id = el.playlistSavedKeys?.value || '';
+        if (!id) { showToast('Select a saved key', 'info'); return; }
+        const ok = confirm('Delete this saved key?');
+        if (!ok) return;
+        el.playlistDeleteSavedKey.disabled = true; el.playlistDeleteSavedKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys/${id}`, { method: 'DELETE' });
+          await loadSavedKeys();
+          showToast('Deleted', 'warn');
+        } catch (err) {
+          showToast(`Delete failed: ${err.message}`, 'error');
+        } finally {
+          el.playlistDeleteSavedKey.disabled = false; el.playlistDeleteSavedKey.classList.remove('loading');
+        }
+      });
+    }
+    if (el.uploadUseSavedKey) {
+      el.uploadUseSavedKey.addEventListener('click', () => {
+        const id = el.uploadSavedKeys?.value || '';
+        const k = getSavedKeyById(id);
+        if (!k) { showToast('Select a saved key', 'info'); return; }
+        const rtmpEl = document.getElementById('rtmpUrl');
+        const keyEl = document.getElementById('streamKey');
+        if (rtmpEl) rtmpEl.value = String(k.rtmpUrl || '');
+        if (keyEl) keyEl.value = String(k.streamKey || '');
+        showToast('Applied saved key', 'success');
+      });
+    }
+    if (el.uploadSaveKey) {
+      el.uploadSaveKey.addEventListener('click', async () => {
+        const name = el.uploadKeyName?.value?.trim() || '';
+        const rtmpEl = document.getElementById('rtmpUrl');
+        const keyEl = document.getElementById('streamKey');
+        const rtmpUrl = rtmpEl?.value?.trim() || '';
+        const streamKey = keyEl?.value?.trim() || '';
+        if (!name) { showToast('Enter a name', 'error'); return; }
+        if (!rtmpUrl) { showToast('Enter RTMP URL', 'error'); return; }
+        if (!streamKey || streamKey.length < 8) { showToast('Key must be >= 8 chars', 'error'); return; }
+        el.uploadSaveKey.disabled = true; el.uploadSaveKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, rtmpUrl, streamKey })
+          });
+          el.uploadKeyName.value = '';
+          await loadSavedKeys();
+          showToast('Saved key', 'success');
+        } catch (err) {
+          showToast(`Save failed: ${err.message}`, 'error');
+        } finally {
+          el.uploadSaveKey.disabled = false; el.uploadSaveKey.classList.remove('loading');
+        }
+      });
+    }
+    if (el.uploadDeleteSavedKey) {
+      el.uploadDeleteSavedKey.addEventListener('click', async () => {
+        const id = el.uploadSavedKeys?.value || '';
+        if (!id) { showToast('Select a saved key', 'info'); return; }
+        const ok = confirm('Delete this saved key?');
+        if (!ok) return;
+        el.uploadDeleteSavedKey.disabled = true; el.uploadDeleteSavedKey.classList.add('loading');
+        try {
+          await fetchJSON(`${API_URL}/keys/${id}`, { method: 'DELETE' });
+          await loadSavedKeys();
+          showToast('Deleted', 'warn');
+        } catch (err) {
+          showToast(`Delete failed: ${err.message}`, 'error');
+        } finally {
+          el.uploadDeleteSavedKey.disabled = false; el.uploadDeleteSavedKey.classList.remove('loading');
+        }
+      });
+    }
   }
 
   function rgba(hex, op) {
@@ -2582,25 +2929,34 @@
     }, REFRESH_INTERVAL_MS);
   }
 
-  /** Init */
+  async function initMain() {
+    setupNavigation();
+    setupUpload();
+    setupLibraryUpload();
+    setupPlaylistForm();
+    setupUrlStreamForm();
+    setupSavedKeysUI();
+    setupOverlayStudio();
+    setupActiveActions();
+    setupFilters();
+    setupCardActions();
+    await Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]);
+    await loadSavedKeys();
+    startAutoRefresh();
+  }
   async function init() {
     setBusy(true);
     try {
       setupTheme();
-      setupNavigation();
-      setupUpload();
-      setupLibraryUpload();
-      setupPlaylistForm();
-      setupUrlStreamForm();
-      setupOverlayStudio();
-      setupActiveActions();
-      setupFilters();
-      setupCardActions();
-      // Load health and videos in parallel to avoid long perceived buffering
-      await Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]);
-      startAutoRefresh();
+      await loadHealth();
+      const authed = await isAuthed();
+      if (!authed) {
+        window.location.href = '/hanging_curtain_login.html';
+        return;
+      }
+      setAuthState(true);
+      await initMain();
     } catch (err) {
-      // Ensure spinner never gets stuck if an unexpected error occurs
       console.error(`[UI] Init error: ${err && err.message ? err.message : err}`);
       showToast('Initialization error. Some features may be limited.', 'error');
     } finally {

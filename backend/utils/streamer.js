@@ -103,11 +103,21 @@ function buildOutputUrl(rtmpUrl, streamKey) {
   return rtmpUrl.endsWith('/') ? `${rtmpUrl}${streamKey}` : `${rtmpUrl}/${streamKey}`;
 }
 
+const OUT_WIDTH = Number(process.env.STREAM_OUT_WIDTH || 1280);
+const OUT_FPS = Number(process.env.STREAM_OUT_FPS || 30);
+const OUT_BV = String(process.env.STREAM_OUT_BV || '2000k');
+const OUT_MAXRATE = String(process.env.STREAM_OUT_MAXRATE || '2200k');
+const OUT_BUFSIZE = String(process.env.STREAM_OUT_BUFSIZE || '4400k');
+const OUT_TUNE = String(process.env.STREAM_OUT_TUNE || 'zerolatency');
+
 class Streamer {
   constructor() {
     this.activeStreams = new Map(); // videoId -> { command, startedAt, progress, lastUpdateMs, stopped, outputUrl }
     this.lastStreamErrors = new Map(); // id -> last error message
     this.globalOverlay = {};
+    this.globalOverlayPrev = {};
+    this.overlayFiles = new Map();
+    this.lastOverlays = new Map();
   }
 
   static hexToFFColor(hex, alpha = 1) {
@@ -119,7 +129,7 @@ class Streamer {
     return `0x${h}@${a}`;
   }
 
-  static buildNowLiveFilters(nl) {
+  static buildNowLiveFilters(nl, files) {
     if (!nl || !nl.show) return [];
     const pos = String(nl.pos || 'tl');
     const isLeft = pos.includes('l') || pos === 'custom';
@@ -134,45 +144,163 @@ class Streamer {
     const itemSize = Math.max(10, Number(nl.itemSize) || 16);
     const itemColor = (nl.itemColor || '#ffffff');
     const itemBg = Streamer.hexToFFColor('#000000', 0.25);
-    const tryFonts = [
-      'C:/Windows/Fonts/segoeui.ttf',
-      'C:/Windows/Fonts/arial.ttf',
-      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-      '/Library/Fonts/Arial.ttf',
-      '/System/Library/Fonts/Supplemental/Arial.ttf',
-    ];
-    let fontFile = null;
-    try {
-      for (const p of tryFonts) {
-        if (fs.existsSync(p)) { fontFile = p.replace(/\\/g, '/'); break; }
-      }
-    } catch (_) {}
-    const fontOpt = fontFile ? `:fontfile='${fontFile}'` : '';
 
     const filters = [];
-    // Label with auto box
-    filters.push(`drawtext=text='${(nl.text || 'NOW LIVE').replace(/[:\\]/g, '\\$&')}':fontsize=${labelSize}:fontcolor=${Streamer.hexToFFColor(labelColor, 1)}:x=${xExpr}:y=${yExpr}:box=1:boxcolor=${labelBg}:boxborderw=0${fontOpt}`);
-    // Items stacked below/above
-    let gap = 2;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].replace(/[:\\]/g, '\\$&');
+    const labelFile = files && files.label ? files.label : null;
+    if (labelFile) {
+      filters.push(`drawtext=textfile='${labelFile}':reload=1:fontsize=${labelSize}:fontcolor=${Streamer.hexToFFColor(labelColor, 1)}:x=${xExpr}:y=${yExpr}:box=1:boxcolor=${labelBg}:boxborderw=0`);
+    } else {
+      filters.push(`drawtext=text='${(nl.text || 'NOW LIVE').replace(/[:\\]/g, '\\$&')}':fontsize=${labelSize}:fontcolor=${Streamer.hexToFFColor(labelColor, 1)}:x=${xExpr}:y=${yExpr}:box=1:boxcolor=${labelBg}:boxborderw=0`);
+    }
+    const maxItems = files && Array.isArray(files.items) ? files.items.length : lines.length;
+    for (let i = 0; i < maxItems; i++) {
       const yItemExpr = isTop ? `((${yExpr})+text_h+4+${i}*(${itemSize}+6))` : `((${yExpr})-${i}*(${itemSize}+6)-(${itemSize}+6))`;
-      filters.push(`drawtext=text='${line}':fontsize=${itemSize}:fontcolor=${Streamer.hexToFFColor(itemColor, 1)}:x=${xExpr}:y=${yItemExpr}:box=1:boxcolor=${itemBg}:boxborderw=0${fontOpt}`);
+      const itemFile = files && files.items && files.items[i] ? files.items[i] : null;
+      if (itemFile) {
+        filters.push(`drawtext=textfile='${itemFile}':reload=1:fontsize=${itemSize}:fontcolor=${Streamer.hexToFFColor(itemColor, 1)}:x=${xExpr}:y=${yItemExpr}:box=1:boxcolor=${itemBg}:boxborderw=0`);
+      } else if (i < lines.length) {
+        const line = lines[i].replace(/[:\\]/g, '\\$&');
+        filters.push(`drawtext=text='${line}':fontsize=${itemSize}:fontcolor=${Streamer.hexToFFColor(itemColor, 1)}:x=${xExpr}:y=${yItemExpr}:box=1:boxcolor=${itemBg}:boxborderw=0`);
+      }
     }
     return filters;
   }
 
-  static buildVfChain(baseScale, overlayConfig) {
+  static buildVfChain(baseScale, overlayConfig, files) {
     const chain = [baseScale];
-    const nlFilters = Streamer.buildNowLiveFilters(overlayConfig && overlayConfig.nowLive);
+    const nlFilters = Streamer.buildNowLiveFilters(overlayConfig && overlayConfig.nowLive, files && files.nowLive ? files.nowLive : files);
     chain.push(...nlFilters);
+    const tkFilters = Streamer.buildTickerFilters(overlayConfig && overlayConfig.ticker, files && files.ticker ? { ticker: files.ticker } : files);
+    chain.push(...tkFilters);
     return chain.join(',');
   }
   setGlobalOverlay(overlay) {
+    this.globalOverlayPrev = this.globalOverlay || {};
     this.globalOverlay = overlay || {};
   }
   getGlobalOverlay() {
     return this.globalOverlay || {};
+  }
+  getOrCreateOverlayFiles(id, overlay) {
+    const safeId = String(id).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const baseDir = path.join(process.cwd(), 'overlay_files', safeId);
+    try { fs.mkdirSync(baseDir, { recursive: true }); } catch (_) {}
+    const nl = (overlay && overlay.nowLive) || {};
+    const tk = (overlay && overlay.ticker) || {};
+    const labelPath = path.join(baseDir, 'label.txt');
+    const items = String(nl.items || '').split(/\r?\n/).map(s => s.trim());
+    const maxItems = 8;
+    const itemPaths = [];
+    for (let i = 0; i < maxItems; i++) {
+      const p = path.join(baseDir, `item_${i}.txt`);
+      itemPaths.push(p);
+    }
+    const tickerPath = path.join(baseDir, 'ticker.txt');
+    try { fs.writeFileSync(labelPath, String(nl.text || 'NOW LIVE'), 'utf8'); } catch (_) {}
+    for (let i = 0; i < itemPaths.length; i++) {
+      const content = items[i] || '';
+      try { fs.writeFileSync(itemPaths[i], String(content), 'utf8'); } catch (_) {}
+    }
+    try { fs.writeFileSync(tickerPath, String(tk.text || tk.items || ''), 'utf8'); } catch (_) {}
+    const norm = (p) => String(p).replace(/\\/g, '/');
+    const files = { label: norm(labelPath), items: itemPaths.map(norm), nowLive: { label: norm(labelPath), items: itemPaths.map(norm) }, ticker: norm(tickerPath) };
+    this.overlayFiles.set(safeId, files);
+    return files;
+  }
+  updateOverlayForId(id, overlay) {
+    const safeId = String(id).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const files = this.overlayFiles.get(safeId) || this.getOrCreateOverlayFiles(safeId, overlay || {});
+    const nl = (overlay && overlay.nowLive) || {};
+    const tk = (overlay && overlay.ticker) || {};
+    try { fs.writeFileSync(String(files.label).replace(/^file:/, ''), String(nl.text || ''), 'utf8'); } catch (_) {}
+    const lines = String(nl.items || '').split(/\r?\n/).map(s => s.trim());
+    for (let i = 0; i < (files.items || []).length; i++) {
+      const content = lines[i] || '';
+      const p = String(files.items[i]).replace(/^file:/, '');
+      try { fs.writeFileSync(p, content, 'utf8'); } catch (_) {}
+    }
+    try {
+      const tp = String(files.ticker || '').replace(/^file:/, '');
+      if (tp) fs.writeFileSync(tp, String(tk.text || tk.items || ''), 'utf8');
+    } catch (_) {}
+    this.overlayFiles.set(safeId, files);
+    const prev = this.lastOverlays.get(safeId) || {};
+    const prevNlShow = !!(prev.nowLive && prev.nowLive.show);
+    const prevTkShow = !!(prev.ticker && prev.ticker.show);
+    const nextNlShow = !!(overlay && overlay.nowLive && overlay.nowLive.show);
+    const nextTkShow = !!(overlay && overlay.ticker && overlay.ticker.show);
+    const toggled = (prevNlShow !== nextNlShow) || (prevTkShow !== nextTkShow);
+    this.lastOverlays.set(safeId, overlay || {});
+    if (toggled) {
+      if (safeId === 'live') {
+        try { this.restartActiveExternalStreams(overlay || {}); } catch (_) {}
+      } else {
+        try { this.restartVideoStream(safeId); } catch (_) {}
+      }
+    }
+    return files;
+  }
+  updateLiveOverlay(overlay) {
+    return this.updateOverlayForId('live', overlay || {});
+  }
+  updateOverlayForVideo(id, overlay) {
+    return this.updateOverlayForId(String(id), overlay || {});
+  }
+  async restartVideoStream(id) {
+    const vid = String(id);
+    const entry = this.activeStreams.get(vid);
+    if (!entry) return false;
+    try {
+      entry.stopped = true;
+      const cmd = entry.command;
+      if (cmd && cmd.ffmpegProc && cmd.ffmpegProc.stdin) {
+        try { cmd.ffmpegProc.stdin.write('q'); } catch (_) {}
+      }
+      try { cmd.kill('SIGINT'); } catch (_) {}
+      this.activeStreams.delete(vid);
+    } catch (_) {}
+    try { await this.startStream(vid); } catch (_) {}
+    return true;
+  }
+  async restartActiveExternalStreams(overlay) {
+    const items = Array.from(this.activeStreams.entries());
+    for (const [key, entry] of items) {
+      if (!entry || !entry.external || !key.startsWith('url:')) continue;
+      const out = String(entry.outputUrl || '');
+      const idx = out.lastIndexOf('/');
+      const base = idx > 0 ? out.substring(0, idx) : out;
+      const sk = idx > 0 ? out.substring(idx + 1) : '';
+      try {
+        try { await this.stopExternalStream(key); } catch (_) {}
+        try { await this.startUrlStream(entry.sourceUrl, { rtmpUrl: base, streamKey: sk, overlay }); } catch (_) {}
+      } catch (_) {}
+    }
+  }
+  static buildTickerFilters(tk, files) {
+    const arr = [];
+    const show = !!(tk && tk.show);
+    if (!show) return arr;
+    const speed = Math.max(10, Number(tk && tk.speed) || 80);
+    const size = Math.max(12, Number(tk && tk.size) || 18);
+    const color = (tk && tk.color) || '#ffffff';
+    const bg = (tk && tk.bg) || '#000000';
+    const opa = Math.max(0, Math.min(1, Number(tk && tk.opa) || 0.35));
+    const yBase = Math.max(0, Number(tk && tk.y) || 0);
+    const bandH = size + 12;
+    const bandY = `(h-${bandH}-8-${yBase})`;
+    arr.push(`drawbox=x=0:y=${bandY}:w=w:h=${bandH}:color=${Streamer.hexToFFColor(bg, opa)}:t=fill`);
+    const tickerFile = files && (files.ticker || (files.nowLive && files.nowLive.label)) ? (files.ticker || (files.nowLive && files.nowLive.label)) : null;
+    const txtOpt = tickerFile ? `textfile='${String(tickerFile).replace(/\\/g,'/')}'` : `text='${String((tk && tk.text) || '').replace(/[:\\]/g, '\\$&')}'`;
+    const xExpr = `(w-mod(t*${speed},(w+text_w)))`;
+    const yExpr = `(h-text_h-8-${yBase})`;
+    const alphaColor = Streamer.hexToFFColor(color, show ? 1 : 0);
+    arr.push(`drawtext=${txtOpt}:reload=1:fontsize=${size}:fontcolor=${alphaColor}:x=${xExpr}:y=${yExpr}:box=0`);
+    if (tk && tk.showTime) {
+      const timeColor = Streamer.hexToFFColor((tk.timeColor || '#000000'), 1);
+      const timeBg = Streamer.hexToFFColor((tk.timeBg || '#ffff00'), 1);
+      arr.push(`drawtext=expansion=strftime:text='%{localtime:%I\\:%M %p}':fontsize=${size}:fontcolor=${timeColor}:x=8:y=${yExpr}:box=1:boxcolor=${timeBg}:boxborderw=0`);
+    }
+    return arr;
   }
 
   getAllActiveStreams() {
@@ -222,13 +350,22 @@ class Streamer {
     }
 
     const inputOpts = ['-re', '-thread_queue_size', '4096', '-user_agent', YTDLP_USER_AGENT, '-protocol_whitelist', 'file,http,https,tcp,tls', '-rw_timeout', '15000000'];
+    const liveFiles = this.getOrCreateOverlayFiles('live', opts.overlay || this.getGlobalOverlay());
     const outputOpts = [
       '-preset veryfast',
-      '-maxrate 3000k',
-      '-bufsize 6000k',
-      '-g 60',
+      `-r ${OUT_FPS}`,
+      `-b:v ${OUT_BV}`,
+      `-maxrate ${OUT_MAXRATE}`,
+      `-bufsize ${OUT_BUFSIZE}`,
+      `-g ${OUT_FPS * 2}`,
       '-pix_fmt yuv420p',
-      `-vf ${Streamer.buildVfChain('scale=1920:-2:force_original_aspect_ratio=decrease', opts.overlay || this.getGlobalOverlay())}`,
+      `-tune ${OUT_TUNE}`,
+      '-profile:v high',
+      '-level 4.1',
+      '-flvflags no_duration_filesize',
+      '-max_muxing_queue_size 1024',
+      '-rtmp_live live',
+      `-vf ${Streamer.buildVfChain(`scale=${OUT_WIDTH}:-2:force_original_aspect_ratio=decrease`, opts.overlay || this.getGlobalOverlay(), liveFiles)}`,
     ];
 
     const streamId = `url:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -343,7 +480,8 @@ class Streamer {
                 console.error(`[Streamer] FFmpeg error for external ${streamId}: ${err.message}`);
                 const msg = err && err.message ? err.message : 'Unknown streaming error';
                 const isRtmp = /^rtmp:\/\//i.test(currentOutputUrl);
-                const looksHandshake = /Error opening output file|I\/O error|Connection refused|Protocol not found|TLS|handshake|403/i.test(msg);
+                const isRtmps = /^rtmps:\/\//i.test(currentOutputUrl);
+                const looksHandshake = /Error opening output file|I\/O error|Connection refused|Protocol not found|TLS|handshake|403|Invalid argument/i.test(msg);
                 if (isRtmp && !attemptedTlsFallback && looksHandshake) {
                   attemptedTlsFallback = true;
                   const tlsUrl = currentOutputUrl.replace(/^rtmp:\/\//i, 'rtmps://');
@@ -353,6 +491,16 @@ class Streamer {
                     return startWithOutput(tlsUrl);
                   } catch (fallbackErr) {
                     console.error(`[Streamer] RTMPS fallback failed for ${streamId}: ${fallbackErr.message}`);
+                  }
+                }
+                if (isRtmps && looksHandshake) {
+                  const plainUrl = currentOutputUrl.replace(/^rtmps:\/\//i, 'rtmp://');
+                  console.warn(`[Streamer] Attempting RTMP fallback for ${streamId}: ${plainUrl}`);
+                  try {
+                    try { if (command) command.kill('SIGINT'); } catch (_) {}
+                    return startWithOutput(plainUrl);
+                  } catch (fallbackErr2) {
+                    console.error(`[Streamer] RTMP fallback failed for ${streamId}: ${fallbackErr2.message}`);
                   }
                 }
                 const looksExpired = /(410|Gone|HTTP 410|403|Forbidden|signature).*?/i.test(msg);
@@ -466,139 +614,160 @@ class Streamer {
       video.scheduleTime = new Date();
     }
 
-    const command = ffmpeg(path.resolve(video.filepath))
-      .inputOptions(inputOpts)
-      .videoCodec('libx264')
-      .audioCodec('aac')
-      .audioBitrate('128k')
-      .outputOptions([
-        '-preset veryfast',
-        '-maxrate 3000k',
-        '-bufsize 6000k',
-        '-g 60',
-        '-pix_fmt yuv420p',
-        // Scale + overlay chain
-        `-vf ${Streamer.buildVfChain('scale=1920:-2:force_original_aspect_ratio=decrease', video.overlayConfig || {})}`,
-      ])
-      .format('flv')
-      .output(outputUrl);
+    const ovFiles = this.getOrCreateOverlayFiles(id, video.overlayConfig || {})
+    let currentOutputUrl = outputUrl;
+    let command = null;
+    let attemptedTlsDowngrade = false;
 
     return new Promise((resolve, reject) => {
-      command
-        .on('start', async (cmdLine) => {
-          try {
-            console.log(`[Streamer] FFmpeg started for video ${id}: ${cmdLine}`);
-            video.status = 'streaming';
-            video.streamStartedAt = new Date();
-            try { video.streamEndedAt = null; } catch (_) {}
-            video.progress = 0;
-            // Persist actual RTMP details used for this run
-            video.usedRtmpUrl = useRtmpUrl;
-            video.usedStreamKey = useStreamKey;
-            video.lastOutputUrl = outputUrl;
-            await video.save();
-            try { await insertStreamEvent(id, 'start', { outputUrl }); } catch (_) {}
-            try { await syncVideo(video); } catch (_) {}
+      const startWithOutput = (outUrl) => {
+        currentOutputUrl = outUrl;
+        try {
+          command = ffmpeg(path.resolve(video.filepath))
+            .inputOptions(inputOpts)
+            .videoCodec('libx264')
+            .audioCodec('aac')
+            .audioBitrate('128k')
+            .outputOptions([
+              '-preset veryfast',
+              `-r ${OUT_FPS}`,
+              `-b:v ${OUT_BV}`,
+              `-maxrate ${OUT_MAXRATE}`,
+              `-bufsize ${OUT_BUFSIZE}`,
+              `-g ${OUT_FPS * 2}`,
+              '-pix_fmt yuv420p',
+              `-tune ${OUT_TUNE}`,
+              '-profile:v high',
+              '-level 4.1',
+              '-flvflags no_duration_filesize',
+              '-max_muxing_queue_size 1024',
+              '-rtmp_live live',
+              `-vf ${Streamer.buildVfChain(`scale=${OUT_WIDTH}:-2:force_original_aspect_ratio=decrease`, video.overlayConfig || {}, ovFiles)}`,
+            ])
+            .format('flv')
+            .output(outUrl);
 
-            const entry = {
-              command,
-              startedAt: new Date(),
-              progress: 0,
-              lastUpdateMs: Date.now(),
-              stopped: false,
-              outputUrl,
-            };
-            this.activeStreams.set(id, entry);
-            resolve(command);
-          } catch (err) {
-            reject(err);
-          }
-        })
-        .on('progress', async (progress) => {
-          try {
-            const entry = this.activeStreams.get(id);
-            if (!entry) return;
-            const now = Date.now();
-            const seconds = parseTimemark(progress.timemark);
-            let pct = undefined;
-            if (typeof video.duration === 'number' && video.duration > 0) {
-              pct = Math.min(100, Math.floor((seconds / video.duration) * 100));
-            }
-            if (typeof pct === 'number') {
-              // Rate-limit DB writes to ~1s or when percentage increases.
-              if (pct !== entry.progress || now - (entry.lastUpdateMs || 0) > 1000) {
-                entry.progress = pct;
-                entry.lastUpdateMs = now;
-                await Video.findByIdAndUpdate(id, { progress: pct }).exec();
-                try { await updateVideoProgress(id, pct); } catch (_) {}
+          command
+            .on('start', async (cmdLine) => {
+              try {
+                console.log(`[Streamer] FFmpeg started for video ${id}: ${cmdLine}`);
+                video.status = 'streaming';
+                video.streamStartedAt = new Date();
+                try { video.streamEndedAt = null; } catch (_) {}
+                video.progress = 0;
+                video.usedRtmpUrl = useRtmpUrl;
+                video.usedStreamKey = useStreamKey;
+                video.lastOutputUrl = outUrl;
+                await video.save();
+                try { await insertStreamEvent(id, 'start', { outputUrl: outUrl }); } catch (_) {}
+                try { await syncVideo(video); } catch (_) {}
+
+                const entry = {
+                  command,
+                  startedAt: new Date(),
+                  progress: 0,
+                  lastUpdateMs: Date.now(),
+                  stopped: false,
+                  outputUrl: outUrl,
+                };
+                this.activeStreams.set(id, entry);
+                resolve(command);
+              } catch (err) {
+                reject(err);
               }
-            }
-          } catch (err) {
-            console.warn(`[Streamer] Progress update failed for ${id}: ${err.message}`);
-          }
-        })
-        .on('stderr', (line) => {
-          // Optional: log ffmpeg internal lines for diagnostics
-          if (line && /Error|Invalid|failed/i.test(line)) {
-            console.warn(`[Streamer][${id}] ffmpeg: ${line.trim()}`);
-          }
-        })
-        .on('end', async () => {
-          try {
-            const entry = this.activeStreams.get(id);
-            this.activeStreams.delete(id);
-            // Verify document still exists before saving
-            const exists = await Video.exists({ _id: id });
-            if (!exists) {
-              console.log(`[Streamer] Video ${id} no longer exists; skipping end-state save.`);
-              return;
-            }
-            // If stopStream was called, prefer cancelled status.
-            if (entry && entry.stopped) {
-              video.status = 'cancelled';
-            } else {
-              video.status = 'completed';
-              video.progress = 100;
-            }
-            video.streamEndedAt = new Date();
-            // lastOutputUrl etc already set on start; keep as-is for audit
-            await video.save();
-            try { await insertStreamEvent(id, 'end', { progress: video.progress, outputUrl: video.lastOutputUrl }); } catch (_) {}
-            try { await syncVideo(video); } catch (_) {}
-            console.log(`[Streamer] Stream finished for video ${id} (${video.status}).`);
-          } catch (err) {
-            console.error(`[Streamer] End handler error for ${id}: ${err.message}`);
-          }
-        })
-        .on('error', async (err, _stdout, _stderr) => {
-          try {
-            console.error(`[Streamer] FFmpeg error for video ${id}: ${err.message}`);
-            this.activeStreams.delete(id);
-            // Verify document still exists before saving
-            const exists = await Video.exists({ _id: id });
-            if (exists) {
-              video.status = 'failed';
-              video.errorMessage = err.message || 'Streaming failed';
-              video.streamEndedAt = new Date();
-              await video.save();
-              try { await insertStreamEvent(id, 'error', { message: video.errorMessage }); } catch (_) {}
-              try { await syncVideo(video); } catch (_) {}
-            } else {
-              console.log(`[Streamer] Video ${id} no longer exists; skipping error-state save.`);
-            }
-          } catch (saveErr) {
-            console.error(`[Streamer] Failed to persist error for ${id}: ${saveErr.message}`);
-          }
-          // Reject only if startup failed; if error after start, the promise has resolved already.
-          // For completeness, we do not re-reject here.
-        });
+            })
+            .on('progress', async (progress) => {
+              try {
+                const entry = this.activeStreams.get(id);
+                if (!entry) return;
+                const now = Date.now();
+                const seconds = parseTimemark(progress.timemark);
+                let pct = undefined;
+                if (typeof video.duration === 'number' && video.duration > 0) {
+                  pct = Math.min(100, Math.floor((seconds / video.duration) * 100));
+                }
+                if (typeof pct === 'number') {
+                  if (pct !== entry.progress || now - (entry.lastUpdateMs || 0) > 1000) {
+                    entry.progress = pct;
+                    entry.lastUpdateMs = now;
+                    await Video.findByIdAndUpdate(id, { progress: pct }).exec();
+                    try { await updateVideoProgress(id, pct); } catch (_) {}
+                  }
+                }
+              } catch (err) {
+                console.warn(`[Streamer] Progress update failed for ${id}: ${err.message}`);
+              }
+            })
+            .on('stderr', (line) => {
+              if (line && /Error|Invalid|failed/i.test(line)) {
+                console.warn(`[Streamer][${id}] ffmpeg: ${line.trim()}`);
+              }
+            })
+            .on('end', async () => {
+              try {
+                const entry = this.activeStreams.get(id);
+                this.activeStreams.delete(id);
+                const exists = await Video.exists({ _id: id });
+                if (!exists) {
+                  console.log(`[Streamer] Video ${id} no longer exists; skipping end-state save.`);
+                  return;
+                }
+                if (entry && entry.stopped) {
+                  video.status = 'cancelled';
+                } else {
+                  video.status = 'completed';
+                  video.progress = 100;
+                }
+                video.streamEndedAt = new Date();
+                await video.save();
+                try { await insertStreamEvent(id, 'end', { progress: video.progress, outputUrl: video.lastOutputUrl }); } catch (_) {}
+                try { await syncVideo(video); } catch (_) {}
+                console.log(`[Streamer] Stream finished for video ${id} (${video.status}).`);
+              } catch (err) {
+                console.error(`[Streamer] End handler error for ${id}: ${err.message}`);
+              }
+            })
+            .on('error', async (err, _stdout, _stderr) => {
+              try {
+                const msg = err && err.message ? err.message : 'Unknown streaming error';
+                const isRtmps = /^rtmps:\/\//i.test(currentOutputUrl);
+                const looksHandshake = /TLS|handshake|Protocol not found|I\/O error|Connection refused|Invalid argument/i.test(msg);
+                if (isRtmps && !attemptedTlsDowngrade && looksHandshake) {
+                  attemptedTlsDowngrade = true;
+                  const plainUrl = currentOutputUrl.replace(/^rtmps:\/\//i, 'rtmp://');
+                  console.warn(`[Streamer] Attempting RTMP fallback for ${id}: ${plainUrl}`);
+                  try { if (command) command.kill('SIGINT'); } catch (_) {}
+                  return startWithOutput(plainUrl);
+                }
+                console.error(`[Streamer] FFmpeg error for video ${id}: ${err.message}`);
+                this.activeStreams.delete(id);
+                const exists = await Video.exists({ _id: id });
+                if (exists) {
+                  video.status = 'failed';
+                  video.errorMessage = err.message || 'Streaming failed';
+                  video.streamEndedAt = new Date();
+                  await video.save();
+                  try { await insertStreamEvent(id, 'error', { message: video.errorMessage }); } catch (_) {}
+                  try { await syncVideo(video); } catch (_) {}
+                } else {
+                  console.log(`[Streamer] Video ${id} no longer exists; skipping error-state save.`);
+                }
+              } catch (saveErr) {
+                console.error(`[Streamer] Failed to persist error for ${id}: ${saveErr.message}`);
+              }
+            });
 
-      // Run the command
-      try {
-        command.run();
-      } catch (runErr) {
-        reject(runErr);
-      }
+          try {
+            command.run();
+          } catch (runErr) {
+            reject(runErr);
+          }
+        } catch (startErr) {
+          reject(startErr);
+        }
+      };
+
+      startWithOutput(outputUrl);
     });
   }
 

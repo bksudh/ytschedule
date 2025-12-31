@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access the Stream Timeline</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #000;
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+            perspective: 1000px;
+        }
+
+        /* Cinematic Opening - Dark Screen */
+        .opening-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 10000;
+            animation: openingFade 3s ease-out forwards;
+        }
+
+        @keyframes openingFade {
+            0% { opacity: 1; }
+            70% { opacity: 1; }
+            100% { opacity: 0; pointer-events: none; }
+        }
+
+        /* Pulse Effect */
+        .pulse-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: rgba(100, 200, 255, 0.8);
+            border-radius: 50%;
+            animation: initialPulse 3s ease-out;
+        }
+
+        @keyframes initialPulse {
+            0%, 30% {
+                width: 4px;
+                height: 4px;
+                box-shadow: 0 0 20px rgba(100, 200, 255, 0.8);
+            }
+            100% {
+                width: 200px;
+                height: 200px;
+                box-shadow: 0 0 100px rgba(100, 200, 255, 0.4);
+                opacity: 0;
+            }
+        }
+
+        /* Timeline Initial Line */
+        .timeline-line {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #64c8ff, #9664ff, #64c8ff, transparent);
+            animation: lineExpand 2s ease-out 1s forwards;
+        }
+
+        @keyframes lineExpand {
+            0% { width: 0; opacity: 0; }
+            50% { opacity: 1; }
+            100% { width: 80%; opacity: 0.8; }
+        }
+
+        /* Space Background */
+        .space-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, #0a0e1a 0%, #000000 100%);
+            z-index: 0;
+        }
+
+        /* Cinematic Stars */
+        .star-field {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            animation: starTwinkle 3s ease-in-out infinite, starMove 20s linear infinite;
+        }
+
+        @keyframes starTwinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        @keyframes starMove {
+            0% { transform: translateZ(0); }
+            100% { transform: translateZ(1000px); }
+        }
+
+        /* Time Tunnel */
+        .time-tunnel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            height: 100%;
+            transform-style: preserve-3d;
+            animation: tunnelEntry 8s ease-out 2s forwards;
+            z-index: 2;
+        }
+
+        @keyframes tunnelEntry {
+            0% { transform: translate(-50%, -50%) translateZ(-2000px); }
+            100% { transform: translate(-50%, -50%) translateZ(0); }
+        }
+
+        .clock-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border: 2px solid rgba(100, 200, 255, 0.15);
+            border-radius: 50%;
+            transform-style: preserve-3d;
+        }
+
+        .ring-1 {
+            width: 800px;
+            height: 800px;
+            margin: -400px 0 0 -400px;
+            animation: rotateRing 40s linear infinite;
+            transform: translateZ(-500px);
+        }
+
+        .ring-2 {
+            width: 1200px;
+            height: 1200px;
+            margin: -600px 0 0 -600px;
+            animation: rotateRing 60s linear infinite reverse;
+            transform: translateZ(-1000px);
+            border-color: rgba(150, 100, 255, 0.12);
+        }
+
+        .ring-3 {
+            width: 1600px;
+            height: 1600px;
+            margin: -800px 0 0 -800px;
+            animation: rotateRing 80s linear infinite;
+            transform: translateZ(-1500px);
+            border-color: rgba(100, 200, 255, 0.08);
+        }
+
+        @keyframes rotateRing {
+            from { transform: translateZ(var(--z)) rotateZ(0deg); }
+            to { transform: translateZ(var(--z)) rotateZ(360deg); }
+        }
+
+        .ring-1 { --z: -500px; }
+        .ring-2 { --z: -1000px; }
+        .ring-3 { --z: -1500px; }
+
+        /* Floating Elements */
+        .floating-elements {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .float-element {
+            position: absolute;
+            color: rgba(100, 200, 255, 0.4);
+            font-size: 14px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            animation: floatElement 15s ease-in-out infinite;
+            font-family: 'Orbitron', monospace;
+        }
+
+        @keyframes floatElement {
+            0%, 100% {
+                transform: translateY(0) translateZ(0);
+                opacity: 0;
+            }
+            10% {
+                opacity: 0.6;
+            }
+            90% {
+                opacity: 0.6;
+            }
+            100% {
+                transform: translateY(-100vh) translateZ(500px);
+                opacity: 0;
+            }
+        }
+
+        /* Particle Streams */
+        .particle-stream {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .stream-particle {
+            position: absolute;
+            width: 2px;
+            height: 40px;
+            background: linear-gradient(to bottom, rgba(100, 200, 255, 0.8), transparent);
+            border-radius: 2px;
+            animation: streamFlow 3s linear infinite;
+        }
+
+        @keyframes streamFlow {
+            0% {
+                transform: translateZ(-1000px) translateY(100vh);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateZ(500px) translateY(-100vh);
+                opacity: 0;
+            }
+        }
+
+        /* AI Core Orb */
+        .ai-core-container {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            animation: orbAppear 3s ease-out 5s forwards;
+            opacity: 0;
+        }
+
+        @keyframes orbAppear {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) translateZ(-1000px) scale(0.3);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) translateZ(0) scale(1);
+            }
+        }
+
+        .ai-orb {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            animation: orbBreathe 4s ease-in-out infinite;
+        }
+
+        @keyframes orbBreathe {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+
+        .orb-core {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, rgba(100, 220, 255, 0.6) 0%, rgba(150, 100, 255, 0.3) 40%, transparent 70%);
+            border-radius: 50%;
+            filter: blur(20px);
+            animation: coreGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes coreGlow {
+            0%, 100% {
+                box-shadow: 0 0 60px rgba(100, 200, 255, 0.6),
+                            0 0 120px rgba(100, 200, 255, 0.3);
+            }
+            50% {
+                box-shadow: 0 0 80px rgba(100, 200, 255, 0.8),
+                            0 0 160px rgba(100, 200, 255, 0.4);
+            }
+        }
+
+        .orb-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+            border-radius: 50%;
+        }
+
+        .orb-ring-1 {
+            width: 140px;
+            height: 140px;
+            animation: orbRotate 8s linear infinite;
+        }
+
+        .orb-ring-2 {
+            width: 180px;
+            height: 180px;
+            animation: orbRotate 12s linear infinite reverse;
+            border-color: rgba(150, 100, 255, 0.25);
+        }
+
+        @keyframes orbRotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* Neural Lines */
+        .neural-web {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+        }
+
+        .neural-line {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(100, 200, 255, 0.3), transparent);
+            transform-origin: center;
+            animation: neuralPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes neuralPulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
+        /* Login Panel - Materializes from particles */
+        .login-panel-container {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 101;
+            animation: panelMaterialize 2s ease-out 8s forwards;
+            opacity: 0;
+        }
+
+        @keyframes panelMaterialize {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(0.8);
+                filter: blur(20px);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+                filter: blur(0);
+            }
+        }
+
+        .login-panel {
+            position: relative;
+            width: 520px;
+            max-width: 90vw;
+            background: rgba(10, 15, 30, 0.6);
+            backdrop-filter: blur(40px);
+            border-radius: 24px;
+            padding: 60px 50px;
+            border: 1px solid rgba(100, 200, 255, 0.2);
+            box-shadow: 
+                0 40px 100px rgba(0, 0, 0, 0.8),
+                0 0 80px rgba(100, 200, 255, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1),
+                inset 0 -1px 0 rgba(100, 200, 255, 0.1);
+        }
+
+        .panel-reflection {
+            position: absolute;
+            top: 0;
+            left: 20%;
+            width: 60%;
+            height: 100%;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent);
+            border-radius: 24px;
+            pointer-events: none;
+        }
+
+        /* Login Title */
+        .login-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 36px;
+            font-weight: 700;
+            text-align: center;
+            background: linear-gradient(135deg, #64c8ff, #9664ff, #64c8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            background-size: 200% 200%;
+            animation: titleShimmer 4s ease-in-out infinite;
+            margin-bottom: 12px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+
+        @keyframes titleShimmer {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .login-subtitle {
+            text-align: center;
+            font-size: 14px;
+            color: rgba(100, 200, 255, 0.7);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 50px;
+            font-weight: 400;
+        }
+
+        /* Input Fields */
+        .input-group {
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 18px 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(100, 200, 255, 0.2);
+            border-radius: 12px;
+            font-size: 16px;
+            color: #fff;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 500;
+            letter-spacing: 1px;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .input-field:focus {
+            outline: none;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(100, 200, 255, 0.5);
+            box-shadow: 
+                0 0 30px rgba(100, 200, 255, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .input-field::placeholder {
+            color: rgba(255, 255, 255, 0.25);
+            letter-spacing: 1px;
+        }
+
+        /* Character trail effect */
+        .input-field:focus::after {
+            content: '';
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 2px;
+            height: 20px;
+            background: linear-gradient(to bottom, rgba(100, 200, 255, 0.8), transparent);
+            animation: cursorBlink 1s ease-in-out infinite;
+        }
+
+        @keyframes cursorBlink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Submit Button */
+        .submit-btn {
+            width: 100%;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.2), rgba(150, 100, 255, 0.2));
+            border: 1px solid rgba(100, 200, 255, 0.4);
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #64c8ff;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-top: 20px;
+            font-family: 'Orbitron', sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(100, 200, 255, 0.3), transparent);
+            transition: left 0.8s;
+        }
+
+        .submit-btn:hover {
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.3), rgba(150, 100, 255, 0.3));
+            border-color: rgba(100, 200, 255, 0.6);
+            box-shadow: 
+                0 0 40px rgba(100, 200, 255, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .submit-btn:hover::before {
+            left: 100%;
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Success Flash */
+        .success-flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(100, 200, 255, 0.4), transparent);
+            z-index: 10001;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .success-flash.active {
+            opacity: 1;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .login-panel {
+                width: 90vw;
+                padding: 40px 30px;
+            }
+
+            .login-title {
+                font-size: 28px;
+                letter-spacing: 2px;
+            }
+
+            .login-subtitle {
+                font-size: 12px;
+                letter-spacing: 2px;
+            }
+
+            .ai-orb {
+                width: 150px;
+                height: 150px;
+            }
+
+            .orb-core {
+                width: 60px;
+                height: 60px;
+            }
+
+            .ring-1, .ring-2, .ring-3 {
+                display: none;
+            }
+        }
+
+        /* Bloom Effect */
+        .bloom-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, rgba(100, 200, 255, 0.03), transparent);
+            z-index: 5;
+            pointer-events: none;
+            animation: bloomPulse 8s ease-in-out infinite;
+        }
+
+        @keyframes bloomPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Opening Screen -->
+    <div class="opening-screen">
+        <div class="pulse-center"></div>
+        <div class="timeline-line"></div>
+    </div>
+
+    <!-- Space Background -->
+    <div class="space-bg"></div>
+
+    <!-- Star Field -->
+    <div class="star-field" id="starField"></div>
+
+    <!-- Time Tunnel -->
+    <div class="time-tunnel">
+        <div class="clock-ring ring-1"></div>
+        <div class="clock-ring ring-2"></div>
+        <div class="clock-ring ring-3"></div>
+    </div>
+
+    <!-- Floating Elements -->
+    <div class="floating-elements" id="floatingElements"></div>
+
+    <!-- Particle Streams -->
+    <div class="particle-stream" id="particleStream"></div>
+
+    <!-- AI Core Orb -->
+    <div class="ai-core-container">
+        <div class="ai-orb">
+            <div class="orb-core"></div>
+            <div class="orb-ring orb-ring-1"></div>
+            <div class="orb-ring orb-ring-2"></div>
+            <div class="neural-web" id="neuralWeb"></div>
+        </div>
+    </div>
+
+    <!-- Login Panel -->
+    <div class="login-panel-container">
+        <div class="login-panel">
+            <div class="panel-reflection"></div>
+            
+            <h1 class="login-title">Access the Stream Timeline</h1>
+            <p class="login-subtitle">YouTube Live Scheduler</p>
+
+            <form id="loginForm">
+                <div class="input-group">
+                    <label class="input-label">Username</label>
+                    <input 
+                        type="text" 
+                        class="input-field" 
+                        id="usernameField"
+                        placeholder="admin"
+                        required
+                    >
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Access Code</label>
+                    <input 
+                        type="password" 
+                        class="input-field" 
+                        id="passwordField"
+                        placeholder="Enter your access code"
+                        required
+                    >
+                </div>
+
+                <button type="submit" class="submit-btn">Initialize Timeline</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bloom Overlay -->
+    <div class="bloom-overlay"></div>
+
+    <!-- Success Flash -->
+    <div class="success-flash" id="successFlash"></div>
+
+    <script>
+        // Create star field
+        const starField = document.getElementById('starField');
+        for (let i = 0; i < 200; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            star.style.animationDuration = (2 + Math.random() * 2) + 's';
+            starField.appendChild(star);
+        }
+
+        // Create floating elements
+        const floatingElements = document.getElementById('floatingElements');
+        const elements = ['LIVE', '12:00', 'UTC', 'MON', '18:30', 'STREAM', 'REC', '●'];
+        
+        for (let i = 0; i < 15; i++) {
+            const elem = document.createElement('div');
+            elem.className = 'float-element';
+            elem.textContent = elements[Math.floor(Math.random() * elements.length)];
+            elem.style.left = Math.random() * 100 + '%';
+            elem.style.top = Math.random() * 100 + '%';
+            elem.style.animationDelay = Math.random() * 15 + 's';
+            elem.style.animationDuration = (10 + Math.random() * 10) + 's';
+            floatingElements.appendChild(elem);
+        }
+
+        // Create particle streams
+        const particleStream = document.getElementById('particleStream');
+        for (let i = 0; i < 30; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'stream-particle';
+            particle.style.left = Math.random() * 100 + '%';
+            particle.style.animationDelay = Math.random() * 3 + 's';
+            particle.style.animationDuration = (2 + Math.random() * 2) + 's';
+            particleStream.appendChild(particle);
+        }
+
+        // Create neural web
+        const neuralWeb = document.getElementById('neuralWeb');
+        for (let i = 0; i < 8; i++) {
+            const line = document.createElement('div');
+            line.className = 'neural-line';
+            line.style.transform = `rotate(${i * 45}deg)`;
+            line.style.animationDelay = (i * 0.2) + 's';
+            neuralWeb.appendChild(line);
+        }
+
+        // AI Orb reactions to input
+        const inputs = document.querySelectorAll('.input-field');
+        const orbCore = document.querySelector('.orb-core');
+        const aiOrb = document.querySelector('.ai-orb');
+
+        inputs.forEach(input => {
+            input.addEventListener('input', () => {
+                orbCore.style.transition = 'all 0.3s ease';
+                orbCore.style.transform = 'translate(-50%, -50%) scale(1.2)';
+                orbCore.style.filter = 'blur(25px)';
+                
+                setTimeout(() => {
+                    orbCore.style.transform = 'translate(-50%, -50%) scale(1)';
+                    orbCore.style.filter = 'blur(20px)';
+                }, 300);
+            });
+
+            input.addEventListener('focus', () => {
+                aiOrb.style.transform = 'scale(1.15)';
+            });
+
+            input.addEventListener('blur', () => {
+                aiOrb.style.transform = 'scale(1)';
+            });
+        });
+
+        // Form submission
+        const loginForm = document.getElementById('loginForm');
+        const successFlash = document.getElementById('successFlash');
+        const timeTunnel = document.querySelector('.time-tunnel');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('usernameField').value.trim();
+            const password = document.getElementById('passwordField').value;
+
+            if (username === 'admin' && password === 'sakash2024') {
+                // Success animation
+                successFlash.classList.add('active');
+                
+                // AI orb flashes
+                orbCore.style.transform = 'translate(-50%, -50%) scale(2)';
+                orbCore.style.filter = 'blur(40px)';
+                
+                // Timeline accelerates
+                timeTunnel.style.animation = 'tunnelEntry 2s ease-in forwards';
+                
+                try {
+                    const res = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ username: 'admin', password: 'sakash2024' }),
+                    });
+                    if (res.ok) {
+                        setTimeout(() => {
+                            successFlash.classList.remove('active');
+                            orbCore.style.transform = 'translate(-50%, -50%) scale(1)';
+                            orbCore.style.filter = 'blur(20px)';
+                            window.location.href = '/';
+                        }, 800);
+                    } else {
+                        throw new Error('Login failed');
+                    }
+                } catch (_) {
+                    const panel = document.querySelector('.login-panel');
+                    panel.style.animation = 'shake 0.5s';
+                    panel.style.borderColor = 'rgba(255, 100, 100, 0.4)';
+                    setTimeout(() => {
+                        panel.style.animation = '';
+                        panel.style.borderColor = 'rgba(100, 200, 255, 0.2)';
+                        alert('✗ Access Denied\n✗ Invalid Credentials');
+                    }, 500);
+                }
+            } else {
+                // Error glitch
+                const panel = document.querySelector('.login-panel');
+                panel.style.animation = 'shake 0.5s';
+                panel.style.borderColor = 'rgba(255, 100, 100, 0.4)';
+                
+                setTimeout(() => {
+                    panel.style.animation = '';
+                    panel.style.borderColor = 'rgba(100, 200, 255, 0.2)';
+                    alert('✗ Access Denied\n✗ Invalid Credentials');
+                }, 500);
+            }
+        });
+
+        // Shake animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes shake {
+                0%, 100% { transform: translateX(0); }
+                10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+                20%, 40%, 60%, 80% { transform: translateX(5px); }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Parallax mouse effect
+        document.addEventListener('mousemove', (e) => {
+            const moveX = (e.clientX - window.innerWidth / 2) / 50;
+            const moveY = (e.clientY - window.innerHeight / 2) / 50;
+
+            const rings = document.querySelectorAll('.clock-ring');
+            rings.forEach((ring, index) => {
+                const depth = (index + 1) * 0.2;
+                ring.style.transform = `translate(${moveX * depth}px, ${moveY * depth}px)`;
+            });
+        });
+    </script>
+</body>
+</html>

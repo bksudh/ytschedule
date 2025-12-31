@@ -752,7 +752,10 @@ router.post(
       if (errResp) return;
       const video = await Video.findById(req.params.id);
       if (!video) return res.status(404).json({ error: 'Video not found' });
-      if (video.status !== 'streaming') return res.status(400).json({ error: 'Video is not streaming' });
+      const st = streamer.getStreamStatus(req.params.id);
+      if (!st || !st.active) {
+        if (video.status !== 'streaming') return res.status(400).json({ error: 'Video is not streaming' });
+      }
 
       const ok = await streamer.stopStream(req.params.id);
       if (!ok) return res.status(400).json({ error: 'No active stream process to stop' });
@@ -929,6 +932,7 @@ router.put('/overlay/live', async (req, res, next) => {
   try {
     liveOverlayConfig = req.body || {};
     try { streamer.setGlobalOverlay(liveOverlayConfig); } catch (_) {}
+    try { streamer.updateLiveOverlay(liveOverlayConfig); } catch (_) {}
     const payload = `data: ${JSON.stringify(liveOverlayConfig || {})}\n\n`;
     for (const client of Array.from(liveSseClients)) {
       try { client.write(payload); } catch (_) {}
@@ -952,6 +956,11 @@ router.put(
       if (!video) return res.status(404).json({ error: 'Video not found' });
       video.overlayConfig = req.body || {};
       await video.save();
+      try {
+        if (video.status === 'streaming') {
+          await streamer.updateOverlayForVideo(String(video._id), video.overlayConfig || {});
+        }
+      } catch (_) {}
       const id = String(req.params.id);
       const set = sseClients.get(id);
       if (set) {
