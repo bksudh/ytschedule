@@ -719,6 +719,21 @@ class Streamer {
                   video.progress = 100;
                 }
                 video.streamEndedAt = new Date();
+                if (video.status === 'completed' && video.repeatDaily) {
+                  const prevStart = video.scheduleTime ? new Date(video.scheduleTime) : new Date();
+                  const prevStop = video.stopTime ? new Date(video.stopTime) : null;
+                  const nextStart = new Date(prevStart);
+                  nextStart.setDate(nextStart.getDate() + 1);
+                  let nextStop = null;
+                  if (prevStop && prevStart) {
+                    const deltaMs = prevStop.getTime() - prevStart.getTime();
+                    nextStop = new Date(nextStart.getTime() + Math.max(0, deltaMs));
+                  }
+                  video.status = 'scheduled';
+                  video.scheduleTime = nextStart;
+                  if (nextStop) video.stopTime = nextStop;
+                  video.progress = 0;
+                }
                 await video.save();
                 try { await insertStreamEvent(id, 'end', { progress: video.progress, outputUrl: video.lastOutputUrl }); } catch (_) {}
                 try { await syncVideo(video); } catch (_) {}

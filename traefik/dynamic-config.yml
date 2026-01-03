@@ -3,3 +3,9 @@ http:
     redirect-to-https:
       redirectScheme:
         scheme: https
+    request-buffering:
+      buffering:
+        maxRequestBodyBytes: 5368709120
+        memRequestBodyBytes: 104857600
+        maxResponseBodyBytes: 0
+        memResponseBodyBytes: 0

@@ -162,6 +162,9 @@
     ovClockBorderRadius: document.getElementById('ov-clock-border-radius'),
     ovLogoUrl: document.getElementById('ov-logo-url'),
     ovLogoPos: document.getElementById('ov-logo-pos'),
+    ovLogoFile: document.getElementById('ov-logo-file'),
+    ovLogoX: document.getElementById('ov-logo-x'),
+    ovLogoY: document.getElementById('ov-logo-y'),
     ovLogoSize: document.getElementById('ov-logo-size'),
     ovLogoOpa: document.getElementById('ov-logo-opa'),
     ovLtTitle: document.getElementById('ov-lt-title'),
@@ -345,6 +348,16 @@
       const label = t === 'dark' ? 'Light' : 'Dark';
       el.themeToggle.innerHTML = `<i class="${icon}"></i> ${label}`;
     }
+  }
+  function ensureIconStyles() {
+    if (document.querySelector('link[data-fa]')) return;
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css';
+    l.crossOrigin = 'anonymous';
+    l.referrerPolicy = 'no-referrer';
+    l.setAttribute('data-fa', '1');
+    document.head.appendChild(l);
   }
   function setupTheme() {
     const saved = (() => { try { return localStorage.getItem('theme'); } catch (_) { return null; } })();
@@ -1029,6 +1042,7 @@
       const rtmpInput = el.form.querySelector('input[name="rtmpUrl"]');
       const keyInput = el.form.querySelector('input[name="streamKey"]');
       const loopInput = document.getElementById('loop');
+      const repeatInput = document.getElementById('repeatDaily');
 
       const useLib = !!el.useLibrarySource?.checked;
       const libId = el.librarySourceSelect?.value || '';
@@ -1039,6 +1053,7 @@
       const streamKey = keyInput?.value?.trim();
       const stopAt = stopInput?.value || '';
       const loop = !!loopInput?.checked;
+      const repeatDaily = !!repeatInput?.checked;
 
       // Validation
       if (useLib) {
@@ -1079,6 +1094,7 @@
           streamKey,
           status: 'scheduled',
           loop,
+          repeatDaily,
         };
         if (stopAt) body.stopTime = new Date(stopAt).toISOString();
         if (title) body.title = title; // optional override
@@ -1099,53 +1115,132 @@
           submitBtn.classList.remove('loading');
         });
       } else {
-        // Upload flow as before
-        const fd = new FormData();
-        fd.append('title', title);
-        fd.append('video', file, file.name);
-        fd.append('scheduleTime', new Date(scheduleTime).toISOString());
-        if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
-        fd.append('rtmpUrl', rtmpUrl);
-        fd.append('streamKey', streamKey);
-        fd.append('loop', loop ? 'true' : 'false');
-
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_URL}/videos/upload`);
-        xhr.upload.onprogress = (ev) => {
-          if (!ev.lengthComputable) return;
-          const pct = Math.round((ev.loaded / ev.total) * 100);
-          el.progress.hidden = false;
-          el.progressBar.style.width = `${pct}%`;
-        };
-        xhr.onreadystatechange = () => {
-          if (xhr.readyState !== 4) return;
+        const useChunked = file.size > (50 * 1024 * 1024);
+        if (useChunked) {
+          const uploadId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+          let chunkSize = 8 * 1024 * 1024;
           try {
-            const isOk = xhr.status >= 200 && xhr.status < 300;
-            const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
-            if (isOk) {
-              showToast('Upload successful', 'success');
-              el.form.reset();
-              loadVideos();
-            } else {
-              const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
-              setMessage(msg, 'error');
-              showToast('Upload failed', 'error');
+            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+            const mbps = conn && typeof conn.downlink === 'number' ? conn.downlink : 0;
+            if (mbps >= 100) chunkSize = 32 * 1024 * 1024;
+            else if (mbps >= 20) chunkSize = 16 * 1024 * 1024;
+            else if (mbps >= 5) chunkSize = 8 * 1024 * 1024;
+            else chunkSize = 4 * 1024 * 1024;
+          } catch (_) {}
+          const total = Math.ceil(file.size / chunkSize);
+          let sent = 0;
+          const sendChunk = (index) => {
+            const start = index * chunkSize;
+            const end = Math.min(file.size, start + chunkSize);
+            const blob = file.slice(start, end);
+            const fd = new FormData();
+            fd.append('uploadId', uploadId);
+            fd.append('index', String(index));
+            fd.append('total', String(total));
+            fd.append('filename', file.name);
+            fd.append('chunk', blob, `chunk-${index}`);
+            if (index === total - 1) {
+              fd.append('title', title);
+              fd.append('scheduleTime', new Date(scheduleTime).toISOString());
+              if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
+              fd.append('rtmpUrl', rtmpUrl);
+              fd.append('streamKey', streamKey);
+              fd.append('loop', loop ? 'true' : 'false');
+              fd.append('repeatDaily', repeatDaily ? 'true' : 'false');
             }
-          } catch (e) {
-            setMessage('Unexpected response from server.', 'error');
-          }
-        };
-        xhr.onerror = () => {
-          setMessage('Network error during upload.', 'error');
-          showToast('Network error', 'error');
-        };
-        xhr.onloadend = () => {
-          submitBtn.disabled = false;
-          submitBtn.classList.remove('loading');
-          el.progressBar.style.width = '0%';
-          el.progress.hidden = true;
-        };
-        xhr.send(fd);
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', `${API_URL}/videos/upload/chunk`);
+            xhr.upload.onprogress = (ev) => {
+              const loaded = Number(ev.loaded || 0);
+              const pct = Math.round(((sent + loaded) / file.size) * 100);
+              el.progress.hidden = false;
+              el.progressBar.style.width = `${pct}%`;
+            };
+            xhr.onreadystatechange = () => {
+              if (xhr.readyState !== 4) return;
+              const ok = xhr.status >= 200 && xhr.status < 300;
+              if (!ok) {
+                const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
+                setMessage(msg, 'error');
+                showToast('Upload failed', 'error');
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('loading');
+                el.progressBar.style.width = '0%';
+                el.progress.hidden = true;
+                return;
+              }
+              sent += blob.size;
+              if (index + 1 < total) {
+                sendChunk(index + 1);
+              } else {
+                showToast('Upload successful', 'success');
+                el.form.reset();
+                loadVideos();
+                submitBtn.disabled = false;
+                submitBtn.classList.remove('loading');
+                el.progressBar.style.width = '0%';
+                el.progress.hidden = true;
+              }
+            };
+            xhr.onerror = () => {
+              setMessage('Network error during upload.', 'error');
+              showToast('Network error', 'error');
+              submitBtn.disabled = false;
+              submitBtn.classList.remove('loading');
+              el.progressBar.style.width = '0%';
+              el.progress.hidden = true;
+            };
+            xhr.send(fd);
+          };
+          sendChunk(0);
+        } else {
+          const fd = new FormData();
+          fd.append('title', title);
+          fd.append('video', file, file.name);
+          fd.append('scheduleTime', new Date(scheduleTime).toISOString());
+          if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
+          fd.append('rtmpUrl', rtmpUrl);
+          fd.append('streamKey', streamKey);
+          fd.append('loop', loop ? 'true' : 'false');
+          fd.append('repeatDaily', repeatDaily ? 'true' : 'false');
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `${API_URL}/videos/upload`);
+          xhr.upload.onprogress = (ev) => {
+            if (!ev.lengthComputable) return;
+            const pct = Math.round((ev.loaded / ev.total) * 100);
+            el.progress.hidden = false;
+            el.progressBar.style.width = `${pct}%`;
+          };
+          xhr.onreadystatechange = () => {
+            if (xhr.readyState !== 4) return;
+            try {
+              const isOk = xhr.status >= 200 && xhr.status < 300;
+              const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
+              if (isOk) {
+                showToast('Upload successful', 'success');
+                el.form.reset();
+                loadVideos();
+              } else {
+                const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
+                setMessage(msg, 'error');
+                showToast('Upload failed', 'error');
+              }
+            } catch (e) {
+              setMessage('Unexpected response from server.', 'error');
+            }
+          };
+          xhr.onerror = () => {
+            setMessage('Network error during upload.', 'error');
+            showToast('Network error', 'error');
+          };
+          xhr.onloadend = () => {
+            submitBtn.disabled = false;
+            submitBtn.classList.remove('loading');
+            el.progressBar.style.width = '0%';
+            el.progress.hidden = true;
+          };
+          xhr.send(fd);
+        }
       }
     });
   }
@@ -1939,6 +2034,8 @@
         logo: {
           url: '',
           pos: 'tr',
+          x: null,
+          y: null,
           size: 80,
           opa: 0.8,
           img: null,
@@ -2306,9 +2403,16 @@
       const opa = Math.max(0, Math.min(1, Number(l.opa) || 1));
       ctx.globalAlpha = opa;
       let x = 8, y = 8;
-      if (l.pos === 'tr') { x = this.canvas.width - s - 8; y = 8; }
-      if (l.pos === 'bl') { x = 8; y = this.canvas.height - s - 8; }
-      if (l.pos === 'br') { x = this.canvas.width - s - 8; y = this.canvas.height - s - 8; }
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v)));
+      if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
+        x = clamp(l.x, 0, this.canvas.width - s);
+        y = clamp(l.y, 0, this.canvas.height - s);
+      } else {
+        if (l.pos === 'tl') { x = 8; y = 8; }
+        if (l.pos === 'tr') { x = this.canvas.width - s - 8; y = 8; }
+        if (l.pos === 'bl') { x = 8; y = this.canvas.height - s - 8; }
+        if (l.pos === 'br') { x = this.canvas.width - s - 8; y = this.canvas.height - s - 8; }
+      }
       ctx.drawImage(l.img, x, y, s, s);
       ctx.globalAlpha = 1;
     }
@@ -2455,9 +2559,17 @@
       });
     };
     const syncLogo = () => {
+      const xRaw = el.ovLogoX?.value;
+      const yRaw = el.ovLogoY?.value;
+      const xVal = (typeof xRaw === 'string' && xRaw.length > 0) ? Number(xRaw) : overlay.state.logo.x;
+      const yVal = (typeof yRaw === 'string' && yRaw.length > 0) ? Number(yRaw) : overlay.state.logo.y;
+      const posRaw = el.ovLogoPos?.value || 'tr';
+      const pos = (posRaw === 'custom' || Number.isFinite(xVal) || Number.isFinite(yVal)) ? 'custom' : posRaw;
       overlay.updateLogo({
         url: el.ovLogoUrl?.value || '',
-        pos: el.ovLogoPos?.value || 'tr',
+        pos,
+        x: xVal,
+        y: yVal,
         size: Number(el.ovLogoSize?.value || 80),
         opa: Number(el.ovLogoOpa?.value || 0.8),
       });
@@ -2496,6 +2608,7 @@
       el.ovClockBgEnable, el.ovClockBg, el.ovClockBgOpa, el.ovClockBgPad, el.ovClockBgShape, el.ovClockBgRadius,
       el.ovClockBorderWidth, el.ovClockBorderColor, el.ovClockBorderOpa, el.ovClockBorderRadius,
       el.ovLogoUrl, el.ovLogoPos, el.ovLogoSize, el.ovLogoOpa,
+      el.ovLogoX, el.ovLogoY,
       el.ovLtTitle, el.ovLtSub, el.ovLtShow,
       el.ovScoreA, el.ovScoreB, el.ovScoreAVal, el.ovScoreBVal,
       el.ovBannerText, el.ovBannerShow
@@ -2508,6 +2621,53 @@
         maybePush();
       });
     });
+    function updateLogoXYEnabled() {
+      const mode = (el.ovLogoPos?.value || 'tr');
+      const enabled = mode === 'custom';
+      if (el.ovLogoX) { el.ovLogoX.disabled = !enabled; el.ovLogoX.parentElement?.classList.toggle('disabled', !enabled); }
+      if (el.ovLogoY) { el.ovLogoY.disabled = !enabled; el.ovLogoY.parentElement?.classList.toggle('disabled', !enabled); }
+    }
+    if (el.ovLogoPos) {
+      el.ovLogoPos.addEventListener('change', () => {
+        updateLogoXYEnabled();
+        syncLogo();
+        maybePush();
+      });
+    }
+    if (el.ovLogoX) {
+      el.ovLogoX.addEventListener('input', () => {
+        if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+        updateLogoXYEnabled();
+        syncLogo();
+        maybePush();
+      });
+    }
+    if (el.ovLogoY) {
+      el.ovLogoY.addEventListener('input', () => {
+        if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+        updateLogoXYEnabled();
+        syncLogo();
+        maybePush();
+      });
+    }
+    if (el.ovLogoFile) {
+      el.ovLogoFile.addEventListener('change', () => {
+        const f = el.ovLogoFile.files && el.ovLogoFile.files[0];
+        if (!f) return;
+        const okTypes = ['image/png','image/jpeg','image/jpg','image/webp','image/gif'];
+        if (!okTypes.includes(f.type)) { showToast('Invalid image type', 'error'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = String(reader.result || '');
+          overlay.updateLogo({ url: dataUrl });
+          if (el.ovLogoUrl) el.ovLogoUrl.value = dataUrl;
+          syncLogo();
+          maybePush();
+        };
+        reader.onerror = () => showToast('Image load failed', 'error');
+        reader.readAsDataURL(f);
+      });
+    }
     function updateTickerYEnabled() {
       if (el.ovTickerY) { el.ovTickerY.disabled = false; el.ovTickerY.parentElement?.classList.remove('disabled'); }
     }
@@ -2546,9 +2706,14 @@
     updateTickerYEnabled();
     updateTickerBgInputsEnabled();
     updateNowLiveYEnabled();
+    updateLogoXYEnabled();
     let draggingClock = false;
     let dragDX = 0;
     let dragDY = 0;
+    let draggingLogo = false;
+    let resizingLogo = false;
+    let logoDX = 0;
+    let logoDY = 0;
     function getMouse(ev) {
       const r = el.ovCanvas.getBoundingClientRect();
       const sx = el.ovCanvas.width / r.width;
@@ -2588,6 +2753,43 @@
         dragDY = m.y - cy;
       }
     });
+    function logoRect() {
+      if (!overlay || !overlay.ctx) return null;
+      const l = overlay.state.logo;
+      if (!l.url || !overlay.state.logo.img) return null;
+      const s = Math.max(20, Number(l.size) || 80);
+      let x = 8, y = 8;
+      if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
+        x = Math.max(0, Math.min(el.ovCanvas.width - s, Number(l.x)));
+        y = Math.max(0, Math.min(el.ovCanvas.height - s, Number(l.y)));
+      } else {
+        if (l.pos === 'tl') { x = 8; y = 8; }
+        if (l.pos === 'tr') { x = el.ovCanvas.width - s - 8; y = 8; }
+        if (l.pos === 'bl') { x = 8; y = el.ovCanvas.height - s - 8; }
+        if (l.pos === 'br') { x = el.ovCanvas.width - s - 8; y = el.ovCanvas.height - s - 8; }
+      }
+      return { x, y, w: s, h: s };
+    }
+    el.ovCanvas.addEventListener('mousedown', (ev) => {
+      const m = getMouse(ev);
+      const lr = logoRect();
+      if (lr) {
+        const nearCorner = (Math.abs(m.x - (lr.x + lr.w)) <= 12) && (Math.abs(m.y - (lr.y + lr.h)) <= 12);
+        if (nearCorner) {
+          resizingLogo = true;
+        } else if (m.x >= lr.x && m.x <= lr.x + lr.w && m.y >= lr.y && m.y <= lr.y + lr.h) {
+          draggingLogo = true;
+          logoDX = m.x - lr.x;
+          logoDY = m.y - lr.y;
+          overlay.updateLogo({ pos: 'custom', x: lr.x, y: lr.y });
+          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+          updateLogoXYEnabled();
+          if (el.ovLogoX) el.ovLogoX.value = String(lr.x);
+          if (el.ovLogoY) el.ovLogoY.value = String(lr.y);
+          maybePush();
+        }
+      }
+    });
     window.addEventListener('mousemove', (ev) => {
       if (!draggingClock) return;
       const m = getMouse(ev);
@@ -2609,7 +2811,28 @@
       if (el.ovClockY) el.ovClockY.value = String(ny);
       maybePush();
     });
-    window.addEventListener('mouseup', () => { draggingClock = false; });
+    window.addEventListener('mousemove', (ev) => {
+      const m = getMouse(ev);
+      const lr = logoRect();
+      if (draggingLogo && lr) {
+        let nx = m.x - logoDX;
+        let ny = m.y - logoDY;
+        nx = Math.max(0, Math.min(el.ovCanvas.width - lr.w, nx));
+        ny = Math.max(0, Math.min(el.ovCanvas.height - lr.h, ny));
+        overlay.updateLogo({ pos: 'custom', x: nx, y: ny });
+        if (el.ovLogoX) el.ovLogoX.value = String(nx);
+        if (el.ovLogoY) el.ovLogoY.value = String(ny);
+        maybePush();
+      } else if (resizingLogo && lr) {
+        const nx = Math.max(lr.x, Math.min(el.ovCanvas.width - 8, m.x));
+        const ny = Math.max(lr.y, Math.min(el.ovCanvas.height - 8, m.y));
+        const newSize = Math.max(20, Math.min(400, Math.min(nx - lr.x, ny - lr.y)));
+        overlay.updateLogo({ size: newSize });
+        if (el.ovLogoSize) el.ovLogoSize.value = String(newSize);
+        maybePush();
+      }
+    });
+    window.addEventListener('mouseup', () => { draggingClock = false; draggingLogo = false; resizingLogo = false; });
     if (el.ovStart) {
       el.ovStart.addEventListener('click', (e) => {
         e.preventDefault();
@@ -2680,6 +2903,8 @@
         if (el.ovClockBgRadius) el.ovClockBgRadius.value = String(overlay.state.clock.bgRadius);
         if (el.ovLogoUrl) el.ovLogoUrl.value = String(overlay.state.logo.url);
         if (el.ovLogoPos) el.ovLogoPos.value = String(overlay.state.logo.pos);
+        if (el.ovLogoX) el.ovLogoX.value = String(overlay.state.logo.x ?? '');
+        if (el.ovLogoY) el.ovLogoY.value = String(overlay.state.logo.y ?? '');
         if (el.ovLogoSize) el.ovLogoSize.value = String(overlay.state.logo.size);
         if (el.ovLogoOpa) el.ovLogoOpa.value = String(overlay.state.logo.opa);
         if (el.ovLtTitle) el.ovLtTitle.value = String(overlay.state.lowerThird.title);
@@ -2951,10 +3176,11 @@
       await loadHealth();
       const authed = await isAuthed();
       if (!authed) {
-        window.location.href = '/hanging_curtain_login.html';
+        window.location.href = '/login';
         return;
       }
       setAuthState(true);
+      ensureIconStyles();
       await initMain();
     } catch (err) {
       console.error(`[UI] Init error: ${err && err.message ? err.message : err}`);

@@ -800,32 +800,25 @@
             const username = document.getElementById('usernameField').value.trim();
             const password = document.getElementById('passwordField').value;
 
-            if (username === 'admin' && password === 'sakash2024') {
-                successFlash.classList.add('active');
-                
-                orbCoreEl.style.transform = 'translate(-50%, -50%) scale(2)';
-                orbCoreEl.style.filter = 'blur(40px)';
-                
-                timeTunnel.style.animation = 'tunnelEntry 2s ease-in forwards';
-                
-                try {
-                    const res = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify({ username: 'admin', password: 'sakash2024' }),
-                    });
-                    if (res.ok) {
-                        setTimeout(() => {
-                            successFlash.classList.remove('active');
-                            orbCoreEl.style.transform = 'translate(-50%, -50%) scale(1)';
-                            orbCoreEl.style.filter = 'blur(20px)';
-                            window.location.href = '/';
-                        }, 800);
-                    } else {
-                        throw new Error('Login failed');
-                    }
-                } catch (_) {
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ username, password }),
+                });
+                if (res.ok) {
+                    successFlash.classList.add('active');
+                    orbCoreEl.style.transform = 'translate(-50%, -50%) scale(2)';
+                    orbCoreEl.style.filter = 'blur(40px)';
+                    timeTunnel.style.animation = 'tunnelEntry 2s ease-in forwards';
+                    setTimeout(() => {
+                        successFlash.classList.remove('active');
+                        orbCoreEl.style.transform = 'translate(-50%, -50%) scale(1)';
+                        orbCoreEl.style.filter = 'blur(20px)';
+                        window.location.href = '/';
+                    }, 800);
+                } else {
                     panel.style.animation = 'shake 0.5s';
                     panel.style.borderColor = 'rgba(255, 100, 100, 0.4)';
                     setTimeout(() => {
@@ -834,10 +827,9 @@
                         alert('✗ Access Denied\n✗ Invalid Credentials');
                     }, 500);
                 }
-            } else {
+            } catch (_) {
                 panel.style.animation = 'shake 0.5s';
                 panel.style.borderColor = 'rgba(255, 100, 100, 0.4)';
-                
                 setTimeout(() => {
                     panel.style.animation = '';
                     panel.style.borderColor = 'rgba(100, 200, 255, 0.2)';

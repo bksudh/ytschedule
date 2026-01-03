@@ -69,6 +69,15 @@ const server = http.createServer((req, res) => {
   if (urlPath === '/' || urlPath === '') {
     filePath = path.join(publicDir, 'index.html');
   }
+  if (urlPath === '/hanging_curtain_login.html') {
+    res.statusCode = 302;
+    res.setHeader('Location', '/login');
+    res.end('');
+    return;
+  }
+  if (urlPath === '/login') {
+    filePath = path.join(publicDir, 'hanging_curtain_login.html');
+  }
 
   fs.stat(filePath, (err, stat) => {
     if (err || !stat.isFile()) {

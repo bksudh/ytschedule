@@ -9,7 +9,8 @@
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
+    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com" />
   </head>
   <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
@@ -249,6 +250,13 @@
               <span>Loop video (continuous stream until stopped)</span>
             </label>
             <small>Stops automatically at Stop At time if provided.</small>
+          </div>
+          <div class="form-row">
+            <label class="checkbox">
+              <input id="repeatDaily" type="checkbox" name="repeatDaily" />
+              <span>Repeat daily (auto-schedule next day)</span>
+            </label>
+            <small>Reschedules to the same time tomorrow after stream ends.</small>
           </div>
 
           <div class="form-actions">
@@ -549,6 +557,9 @@
               <summary><i class="fa-solid fa-bolt-lightning"></i> Logo</summary>
               <div class="panel-body">
                 <div class="form-row">
+                  <label class="float"><input id="ov-logo-file" type="file" accept="image/*" /><span>Upload Image</span></label>
+                </div>
+                <div class="form-row">
                   <label class="float"><input id="ov-logo-url" type="text" placeholder=" " /><span>Logo URL</span></label>
                 </div>
                 <div class="form-row">
@@ -557,7 +568,12 @@
                     <option value="tr">Top-Right</option>
                     <option value="bl">Bottom-Left</option>
                     <option value="br">Bottom-Right</option>
+                    <option value="custom">Custom</option>
                   </select>
+                </div>
+                <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                  <label class="float"><input id="ov-logo-x" type="number" min="0" max="1280" step="1" placeholder=" " /><span>Logo X</span></label>
+                  <label class="float"><input id="ov-logo-y" type="number" min="0" max="720" step="1" placeholder=" " /><span>Logo Y</span></label>
                 </div>
                 <div class="form-row">
                   <label class="float"><input id="ov-logo-size" type="number" min="20" max="400" value="80" /><span>Logo Size</span></label>

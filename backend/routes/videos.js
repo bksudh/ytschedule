@@ -21,6 +21,10 @@ const thumbsDir = path.join(uploadDir, 'thumbs');
 if (!fs.existsSync(thumbsDir)) {
   try { fs.mkdirSync(thumbsDir, { recursive: true }); } catch (_) {}
 }
+const tmpDir = path.join(uploadDir, 'tmp');
+if (!fs.existsSync(tmpDir)) {
+  try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (_) {}
+}
 
 const allowedExts = ['.mp4', '.avi', '.mov', '.mkv', '.flv'];
 const storage = multer.diskStorage({
@@ -70,6 +74,38 @@ async function generateThumbnail(inputPath, outPath) {
   });
 }
 
+async function fillMetaAndThumb(videoId) {
+  try {
+    const video = await Video.findById(videoId);
+    if (!video) return;
+    const fp = video.filepath;
+    if (!fp || !fs.existsSync(fp)) return;
+    try {
+      await new Promise((resolve) => {
+        ffmpeg.ffprobe(fp, (err, data) => {
+          if (err) return resolve();
+          const streams = (data && data.streams) || [];
+          const vStream = streams.find((s) => s.codec_type === 'video');
+          const dur = (data.format && data.format.duration) || (vStream && vStream.duration);
+          video.duration = dur ? Math.round(Number(dur)) : undefined;
+          resolve();
+        });
+      });
+    } catch (_) {}
+    try {
+      const thumbName = `${video._id}.jpg`;
+      const thumbPath = path.join(thumbsDir, thumbName);
+      const ok = await generateThumbnail(fp, thumbPath);
+      if (ok) {
+        video.thumbnailPath = thumbPath;
+        video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
+      }
+    } catch (_) {}
+    try { await video.save(); } catch (_) {}
+    try { await syncVideo(video); } catch (_) {}
+  } catch (_) {}
+}
+
 // Simple in-memory rate limiter (per IP + path)
 const rateBuckets = new Map();
 function rateLimit(maxPerWindow, windowMs) {
@@ -105,6 +141,88 @@ function requireAuth(req, res, next) {
 
 // 1. POST /upload
 router.post(
+  '/upload/chunk',
+  upload.single('chunk'),
+  [
+    body('uploadId').isString().trim().isLength({ min: 6 }),
+    body('index').isInt({ min: 0 }).toInt(),
+    body('total').isInt({ min: 1 }).toInt(),
+    body('filename').isString().trim().isLength({ min: 1 }),
+    body('title').optional().isString().trim().isLength({ min: 1 }),
+    body('scheduleTime').optional().isISO8601(),
+    body('stopTime').optional().isISO8601(),
+    body('rtmpUrl').optional().isString().trim().isLength({ min: 1 }),
+    body('streamKey').optional().isString().trim().isLength({ min: 8 }),
+    body('loop').optional().isBoolean().toBoolean(),
+    body('repeatDaily').optional().isBoolean().toBoolean(),
+  ],
+  async (req, res, next) => {
+    try {
+      const errResp = handleValidationErrors(req, res);
+      if (errResp) return;
+      const uploadId = String(req.body.uploadId);
+      const index = Number(req.body.index);
+      const total = Number(req.body.total);
+      const filename = String(req.body.filename);
+      const chunkPath = req.file ? req.file.path : null;
+      if (!chunkPath || !fs.existsSync(chunkPath)) return res.status(400).json({ error: 'Chunk missing' });
+      const partPath = path.join(tmpDir, `${uploadId}.part`);
+      try {
+        await new Promise((resolve, reject) => {
+          try {
+            const r = fs.createReadStream(chunkPath);
+            const w = fs.createWriteStream(partPath, { flags: 'a' });
+            r.on('error', reject);
+            w.on('error', reject);
+            w.on('finish', resolve);
+            r.pipe(w);
+          } catch (e) {
+            reject(e);
+          }
+        });
+        try { fs.unlinkSync(chunkPath); } catch (_) {}
+      } catch (err) {
+        return res.status(500).json({ error: err.message || 'Append failed' });
+      }
+      if (index + 1 < total) {
+        return res.json({ success: true, received: index });
+      }
+      try {
+        const ext = path.extname(filename).toLowerCase();
+        const base = path.basename(filename, ext);
+        const ts = Date.now();
+        const finalName = `${ts}-${base}${ext}`;
+        const finalPath = path.join(uploadDir, finalName);
+        fs.renameSync(partPath, finalPath);
+        const filesize = fs.statSync(finalPath).size;
+        const scheduleTime = req.body.scheduleTime ? new Date(req.body.scheduleTime) : undefined;
+        const stopTime = req.body.stopTime ? new Date(req.body.stopTime) : undefined;
+        const video = await Video.create({
+          title: req.body.title || base,
+          filename: finalName,
+          filepath: finalPath,
+          filesize,
+          duration: undefined,
+          scheduleTime,
+          stopTime,
+          rtmpUrl: req.body.rtmpUrl,
+          streamKey: req.body.streamKey,
+          loop: !!req.body.loop,
+          repeatDaily: !!req.body.repeatDaily,
+          status: scheduleTime ? 'scheduled' : 'library',
+        });
+        try { setImmediate(() => fillMetaAndThumb(String(video._id))); } catch (_) {}
+        return res.json({ success: true, finalized: true, id: String(video._id) });
+      } catch (err) {
+        return res.status(500).json({ error: err.message || 'Finalize failed' });
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
   '/upload',
   upload.single('video'),
   [
@@ -114,6 +232,7 @@ router.post(
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
     body('loop').optional().isBoolean().toBoolean(),
+    body('repeatDaily').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -127,45 +246,22 @@ router.post(
       const scheduleTime = new Date(req.body.scheduleTime);
       const stopTime = req.body.stopTime ? new Date(req.body.stopTime) : undefined;
 
-      let duration = undefined;
-      try {
-        await new Promise((resolve) => {
-          ffmpeg.ffprobe(filepath, (err, data) => {
-            if (err) return resolve();
-            const streams = (data && data.streams) || [];
-            const vStream = streams.find((s) => s.codec_type === 'video');
-            const dur = (data.format && data.format.duration) || (vStream && vStream.duration);
-            duration = dur ? Math.round(Number(dur)) : undefined;
-            resolve();
-          });
-        });
-      } catch (_) {}
-
       const video = await Video.create({
         title: req.body.title,
         filename: req.file.filename,
         filepath,
         filesize,
-        duration,
+        duration: undefined,
         scheduleTime,
         stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
         loop: !!req.body.loop,
+        repeatDaily: !!req.body.repeatDaily,
         status: 'scheduled',
       });
-      try {
-        const thumbName = `${video._id}.jpg`;
-        const thumbPath = path.join(thumbsDir, thumbName);
-        const ok = await generateThumbnail(filepath, thumbPath);
-        if (ok) {
-          video.thumbnailPath = thumbPath;
-          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
-          await video.save();
-        }
-      } catch (_) {}
-      try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
+      try { setImmediate(() => fillMetaAndThumb(String(video._id))); } catch (_) {}
     } catch (err) {
       next(err);
     }
@@ -184,6 +280,7 @@ router.post(
     body('rtmpUrl').isString().trim().isLength({ min: 1 }),
     body('streamKey').isString().trim().isLength({ min: 16 }),
     body('loop').optional().isBoolean().toBoolean(),
+    body('repeatDaily').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -196,45 +293,22 @@ router.post(
       const filepath = path.join(uploadDir, req.file.filename);
       const filesize = req.file.size;
 
-      let duration = undefined;
-      try {
-        await new Promise((resolve) => {
-          ffmpeg.ffprobe(filepath, (err, data) => {
-            if (err) return resolve();
-            const streams = (data && data.streams) || [];
-            const vStream = streams.find((s) => s.codec_type === 'video');
-            const dur = (data.format && data.format.duration) || (vStream && vStream.duration);
-            duration = dur ? Math.round(Number(dur)) : undefined;
-            resolve();
-          });
-        });
-      } catch (_) {}
-
       const video = await Video.create({
         title: req.body.title,
         filename: req.file.filename,
         filepath,
         filesize,
-        duration,
+        duration: undefined,
         scheduledAt, // virtual maps to scheduleTime
         stopTime,
         rtmpUrl: req.body.rtmpUrl,
         streamKey: req.body.streamKey,
         loop: !!req.body.loop,
+        repeatDaily: !!req.body.repeatDaily,
         status: 'scheduled',
       });
-      try {
-        const thumbName = `${video._id}.jpg`;
-        const thumbPath = path.join(thumbsDir, thumbName);
-        const ok = await generateThumbnail(filepath, thumbPath);
-        if (ok) {
-          video.thumbnailPath = thumbPath;
-          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
-          await video.save();
-        }
-      } catch (_) {}
-      try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
+      try { setImmediate(() => fillMetaAndThumb(String(video._id))); } catch (_) {}
     } catch (err) {
       next(err);
     }
@@ -292,40 +366,16 @@ router.post(
       const filepath = path.join(uploadDir, req.file.filename);
       const filesize = req.file.size;
 
-      let duration = undefined;
-      try {
-        await new Promise((resolve) => {
-          ffmpeg.ffprobe(filepath, (err, data) => {
-            if (err) return resolve();
-            const streams = (data && data.streams) || [];
-            const vStream = streams.find((s) => s.codec_type === 'video');
-            const dur = (data.format && data.format.duration) || (vStream && vStream.duration);
-            duration = dur ? Math.round(Number(dur)) : undefined;
-            resolve();
-          });
-        });
-      } catch (_) {}
-
       const video = await Video.create({
         title: req.body.title,
         filename: req.file.filename,
         filepath,
         filesize,
-        duration,
+        duration: undefined,
         status: 'library',
       });
-      try {
-        const thumbName = `${video._id}.jpg`;
-        const thumbPath = path.join(thumbsDir, thumbName);
-        const ok = await generateThumbnail(filepath, thumbPath);
-        if (ok) {
-          video.thumbnailPath = thumbPath;
-          video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
-          await video.save();
-        }
-      } catch (_) {}
-      try { await syncVideo(video); } catch (_) {}
       res.status(201).json(video);
+      try { setImmediate(() => fillMetaAndThumb(String(video._id))); } catch (_) {}
     } catch (err) {
       next(err);
     }
@@ -626,6 +676,7 @@ router.put(
     body('streamKey').optional().isString().trim().isLength({ min: 16 }),
     body('status').optional().isIn(['library', 'scheduled', 'streaming', 'completed', 'failed', 'cancelled']),
     body('loop').optional().isBoolean().toBoolean(),
+    body('repeatDaily').optional().isBoolean().toBoolean(),
   ],
   async (req, res, next) => {
     try {
@@ -642,6 +693,7 @@ router.put(
       if (req.body.streamKey) video.streamKey = req.body.streamKey;
       if (req.body.status) video.status = req.body.status;
       if (typeof req.body.loop === 'boolean') video.loop = req.body.loop;
+      if (typeof req.body.repeatDaily === 'boolean') video.repeatDaily = req.body.repeatDaily;
       await video.save();
       try { await syncVideo(video); } catch (_) {}
       res.json(video);

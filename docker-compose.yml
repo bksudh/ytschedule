@@ -88,6 +88,7 @@ services:
       - "traefik.http.routers.backend.rule=Host(`localhost`) && PathPrefix(`/api`)"
       - "traefik.http.routers.backend.entrypoints=https"
       - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.middlewares=request-buffering@file"
       - "traefik.http.services.backend.loadbalancer.server.port=3000"
     # Expects the backend to expose /health returning 200 OK
     healthcheck:
