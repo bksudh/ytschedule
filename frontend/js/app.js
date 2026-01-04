@@ -2526,6 +2526,7 @@
     const syncTicker = () => {
       overlay.updateTicker({
         text: el.ovTickerText?.value || '',
+        show: !!(el.ovTickerText && el.ovTickerText.value && el.ovTickerText.value.trim().length > 0),
         speed: Number(el.ovTickerSpeed?.value || 120),
         font: el.ovTickerFont?.value || 'Segoe UI',
         size: Number(el.ovTickerSize?.value || 24),

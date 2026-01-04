@@ -167,12 +167,55 @@ class Streamer {
   }
 
   static buildVfChain(baseScale, overlayConfig, files) {
-    const chain = [baseScale];
+    const parts = [];
+    let last = 'v0';
+    parts.push(`[in]${baseScale}[${last}]`);
     const nlFilters = Streamer.buildNowLiveFilters(overlayConfig && overlayConfig.nowLive, files && files.nowLive ? files.nowLive : files);
-    chain.push(...nlFilters);
+    if (nlFilters && nlFilters.length) {
+      const next = 'v1';
+      parts.push(`[${last}]${nlFilters.join(',')}[${next}]`);
+      last = next;
+    }
     const tkFilters = Streamer.buildTickerFilters(overlayConfig && overlayConfig.ticker, files && files.ticker ? { ticker: files.ticker } : files);
-    chain.push(...tkFilters);
-    return chain.join(',');
+    if (tkFilters && tkFilters.length) {
+      const next = 'v2';
+      parts.push(`[${last}]${tkFilters.join(',')}[${next}]`);
+      last = next;
+    }
+    const clockFilters = Streamer.buildClockFilters(overlayConfig && overlayConfig.clock);
+    if (clockFilters && clockFilters.length) {
+      const next = 'v3';
+      parts.push(`[${last}]${clockFilters.join(',')}[${next}]`);
+      last = next;
+    }
+    const ltFilters = Streamer.buildLowerThirdFilters(overlayConfig && overlayConfig.lowerThird, files && files.lowerThird ? files.lowerThird : files);
+    if (ltFilters && ltFilters.length) {
+      const next = 'v4';
+      parts.push(`[${last}]${ltFilters.join(',')}[${next}]`);
+      last = next;
+    }
+    const sbFilters = Streamer.buildScoreboardFilters(overlayConfig && overlayConfig.scoreboard, files && files.scoreboard ? files.scoreboard : files);
+    if (sbFilters && sbFilters.length) {
+      const next = 'v5';
+      parts.push(`[${last}]${sbFilters.join(',')}[${next}]`);
+      last = next;
+    }
+    const bnFilters = Streamer.buildBannerFilters(overlayConfig && overlayConfig.banner, files && files.banner ? files.banner : files);
+    if (bnFilters && bnFilters.length) {
+      const next = 'v6';
+      parts.push(`[${last}]${bnFilters.join(',')}[${next}]`);
+      last = next;
+    }
+    const logoSegs = Streamer.buildLogoSegments(overlayConfig && overlayConfig.logo);
+    if (logoSegs && logoSegs.length) {
+      const next = 'v7';
+      const logoLabel = 'lg0';
+      parts.push(`${logoSegs[0]}[${logoLabel}]`);
+      parts.push(`[${last}][${logoLabel}]${logoSegs[1]}[${next}]`);
+      last = next;
+    }
+    parts.push(`[${last}]null[out]`);
+    return parts.join(';');
   }
   setGlobalOverlay(overlay) {
     this.globalOverlayPrev = this.globalOverlay || {};
@@ -187,6 +230,9 @@ class Streamer {
     try { fs.mkdirSync(baseDir, { recursive: true }); } catch (_) {}
     const nl = (overlay && overlay.nowLive) || {};
     const tk = (overlay && overlay.ticker) || {};
+    const lt = (overlay && overlay.lowerThird) || {};
+    const sb = (overlay && overlay.scoreboard) || {};
+    const bn = (overlay && overlay.banner) || {};
     const labelPath = path.join(baseDir, 'label.txt');
     const items = String(nl.items || '').split(/\r?\n/).map(s => s.trim());
     const maxItems = 8;
@@ -196,14 +242,33 @@ class Streamer {
       itemPaths.push(p);
     }
     const tickerPath = path.join(baseDir, 'ticker.txt');
+    const ltTitlePath = path.join(baseDir, 'lt_title.txt');
+    const ltSubPath = path.join(baseDir, 'lt_sub.txt');
+    const sbPath = path.join(baseDir, 'score.txt');
+    const bnPath = path.join(baseDir, 'banner.txt');
     try { fs.writeFileSync(labelPath, String(nl.text || 'NOW LIVE'), 'utf8'); } catch (_) {}
     for (let i = 0; i < itemPaths.length; i++) {
       const content = items[i] || '';
       try { fs.writeFileSync(itemPaths[i], String(content), 'utf8'); } catch (_) {}
     }
     try { fs.writeFileSync(tickerPath, String(tk.text || tk.items || ''), 'utf8'); } catch (_) {}
+    try { fs.writeFileSync(ltTitlePath, String(lt.title || ''), 'utf8'); } catch (_) {}
+    try { fs.writeFileSync(ltSubPath, String(lt.sub || ''), 'utf8'); } catch (_) {}
+    try {
+      const scoreText = `${String(sb.a || '').trim()} ${Number(sb.aVal || 0)} - ${Number(sb.bVal || 0)} ${String(sb.b || '').trim()}`.trim();
+      fs.writeFileSync(sbPath, scoreText, 'utf8');
+    } catch (_) {}
+    try { fs.writeFileSync(bnPath, String(bn.text || ''), 'utf8'); } catch (_) {}
     const norm = (p) => String(p).replace(/\\/g, '/');
-    const files = { label: norm(labelPath), items: itemPaths.map(norm), nowLive: { label: norm(labelPath), items: itemPaths.map(norm) }, ticker: norm(tickerPath) };
+    const files = {
+      label: norm(labelPath),
+      items: itemPaths.map(norm),
+      nowLive: { label: norm(labelPath), items: itemPaths.map(norm) },
+      ticker: norm(tickerPath),
+      lowerThird: { title: norm(ltTitlePath), sub: norm(ltSubPath) },
+      scoreboard: { line: norm(sbPath) },
+      banner: norm(bnPath),
+    };
     this.overlayFiles.set(safeId, files);
     return files;
   }
@@ -212,6 +277,9 @@ class Streamer {
     const files = this.overlayFiles.get(safeId) || this.getOrCreateOverlayFiles(safeId, overlay || {});
     const nl = (overlay && overlay.nowLive) || {};
     const tk = (overlay && overlay.ticker) || {};
+    const lt = (overlay && overlay.lowerThird) || {};
+    const sb = (overlay && overlay.scoreboard) || {};
+    const bn = (overlay && overlay.banner) || {};
     try { fs.writeFileSync(String(files.label).replace(/^file:/, ''), String(nl.text || ''), 'utf8'); } catch (_) {}
     const lines = String(nl.items || '').split(/\r?\n/).map(s => s.trim());
     for (let i = 0; i < (files.items || []).length; i++) {
@@ -223,13 +291,40 @@ class Streamer {
       const tp = String(files.ticker || '').replace(/^file:/, '');
       if (tp) fs.writeFileSync(tp, String(tk.text || tk.items || ''), 'utf8');
     } catch (_) {}
+    try {
+      const ttp = files.lowerThird && files.lowerThird.title ? String(files.lowerThird.title).replace(/^file:/, '') : null;
+      const tsp = files.lowerThird && files.lowerThird.sub ? String(files.lowerThird.sub).replace(/^file:/, '') : null;
+      if (ttp) fs.writeFileSync(ttp, String(lt.title || ''), 'utf8');
+      if (tsp) fs.writeFileSync(tsp, String(lt.sub || ''), 'utf8');
+    } catch (_) {}
+    try {
+      const sp = files.scoreboard && files.scoreboard.line ? String(files.scoreboard.line).replace(/^file:/, '') : null;
+      if (sp) {
+        const scoreText = `${String(sb.a || '').trim()} ${Number(sb.aVal || 0)} - ${Number(sb.bVal || 0)} ${String(sb.b || '').trim()}`.trim();
+        fs.writeFileSync(sp, scoreText, 'utf8');
+      }
+    } catch (_) {}
+    try {
+      const bp = files.banner ? String(files.banner).replace(/^file:/, '') : null;
+      if (bp) fs.writeFileSync(bp, String(bn.text || ''), 'utf8');
+    } catch (_) {}
     this.overlayFiles.set(safeId, files);
     const prev = this.lastOverlays.get(safeId) || {};
     const prevNlShow = !!(prev.nowLive && prev.nowLive.show);
-    const prevTkShow = !!(prev.ticker && prev.ticker.show);
+    const prevTkText = prev.ticker && typeof prev.ticker.text === 'string' ? prev.ticker.text.trim() : '';
+    const prevTkShow = !!(prev.ticker && prev.ticker.show) || !!prevTkText;
+    const prevLtShow = !!(prev.lowerThird && prev.lowerThird.show);
+    const prevBnShow = !!(prev.banner && prev.banner.show);
+    const prevLogo = prev.logo || {};
+    const nextLogo = (overlay && overlay.logo) || {};
+    const prevLogoSig = JSON.stringify({ url: prevLogo.url || '', pos: prevLogo.pos || '', x: prevLogo.x, y: prevLogo.y, width: prevLogo.width, height: prevLogo.height, size: prevLogo.size, rotate: prevLogo.rotate, opa: prevLogo.opa });
+    const nextLogoSig = JSON.stringify({ url: nextLogo.url || '', pos: nextLogo.pos || '', x: nextLogo.x, y: nextLogo.y, width: nextLogo.width, height: nextLogo.height, size: nextLogo.size, rotate: nextLogo.rotate, opa: nextLogo.opa });
     const nextNlShow = !!(overlay && overlay.nowLive && overlay.nowLive.show);
-    const nextTkShow = !!(overlay && overlay.ticker && overlay.ticker.show);
-    const toggled = (prevNlShow !== nextNlShow) || (prevTkShow !== nextTkShow);
+    const nextTkText = overlay && overlay.ticker && typeof overlay.ticker.text === 'string' ? overlay.ticker.text.trim() : '';
+    const nextTkShow = !!(overlay && overlay.ticker && overlay.ticker.show) || !!nextTkText;
+    const nextLtShow = !!(overlay && overlay.lowerThird && overlay.lowerThird.show);
+    const nextBnShow = !!(overlay && overlay.banner && overlay.banner.show);
+    const toggled = (prevNlShow !== nextNlShow) || (prevTkShow !== nextTkShow) || (prevLtShow !== nextLtShow) || (prevBnShow !== nextBnShow) || (prevLogoSig !== nextLogoSig);
     this.lastOverlays.set(safeId, overlay || {});
     if (toggled) {
       if (safeId === 'live') {
@@ -278,7 +373,8 @@ class Streamer {
   }
   static buildTickerFilters(tk, files) {
     const arr = [];
-    const show = !!(tk && tk.show);
+    const txt = tk && typeof tk.text === 'string' ? tk.text : '';
+    const show = !!(tk && tk.show) || (txt && txt.trim().length > 0);
     if (!show) return arr;
     const speed = Math.max(10, Number(tk && tk.speed) || 80);
     const size = Math.max(12, Number(tk && tk.size) || 18);
@@ -293,7 +389,7 @@ class Streamer {
     const txtOpt = tickerFile ? `textfile='${String(tickerFile).replace(/\\/g,'/')}'` : `text='${String((tk && tk.text) || '').replace(/[:\\]/g, '\\$&')}'`;
     const xExpr = `(w-mod(t*${speed},(w+text_w)))`;
     const yExpr = `(h-text_h-8-${yBase})`;
-    const alphaColor = Streamer.hexToFFColor(color, show ? 1 : 0);
+    const alphaColor = Streamer.hexToFFColor(color, 1);
     arr.push(`drawtext=${txtOpt}:reload=1:fontsize=${size}:fontcolor=${alphaColor}:x=${xExpr}:y=${yExpr}:box=0`);
     if (tk && tk.showTime) {
       const timeColor = Streamer.hexToFFColor((tk.timeColor || '#000000'), 1);
@@ -301,6 +397,112 @@ class Streamer {
       arr.push(`drawtext=expansion=strftime:text='%{localtime:%I\\:%M %p}':fontsize=${size}:fontcolor=${timeColor}:x=8:y=${yExpr}:box=1:boxcolor=${timeBg}:boxborderw=0`);
     }
     return arr;
+  }
+
+  static buildClockFilters(clock) {
+    const c = clock || {};
+    if (!c.enable) return [];
+    const size = Math.max(10, Number(c.size) || 20);
+    const color = Streamer.hexToFFColor(c.color || '#ffffff', 1);
+    const fmtParts = [];
+    const twelve = String(c.format || '24') === '12';
+    const sec = !!c.showSeconds;
+    const date = !!c.showDate;
+    if (date) fmtParts.push('%d %b %Y');
+    fmtParts.push(twelve ? `%I\\:%M${sec ? '\\:%S' : ''} %p` : `%H\\:%M${sec ? '\\:%S' : ''}`);
+    const fmt = fmtParts.join(' ');
+    const x = Number.isFinite(c.x) ? Number(c.x) : null;
+    const y = Number.isFinite(c.y) ? Number(c.y) : 8;
+    const xExpr = Number.isFinite(x) ? `(${x})-text_w/2` : `(w/2)-text_w/2`;
+    const yExpr = Number.isFinite(y) ? `${y}` : `8`;
+    const opts = [`expansion=strftime`, `text='%{localtime:${fmt}}'`, `fontsize=${size}`, `fontcolor=${color}`, `x=${xExpr}`, `y=${yExpr}`];
+    if (c.bgEnable) {
+      const bg = Streamer.hexToFFColor(c.bgColor || '#000000', Number(c.bgOpa || 0.4));
+      opts.push(`box=1`, `boxcolor=${bg}`, `boxborderw=${Math.max(0, Number(c.bgPad) || 0)}`);
+    }
+    if (Number(c.borderWidth) > 0) {
+      const bw = Math.max(0, Number(c.borderWidth) || 0);
+      const bc = Streamer.hexToFFColor(c.borderColor || '#ffffff', Number(c.borderOpa || 1));
+      opts.push(`borderw=${bw}`, `bordercolor=${bc}`);
+    }
+    return [`drawtext=${opts.join(':')}`];
+  }
+
+  static buildLowerThirdFilters(lt, files) {
+    const l = lt || {};
+    if (!l.show) return [];
+    const titleSize = 26;
+    const subSize = 18;
+    const titleColor = Streamer.hexToFFColor('#ffffff', 1);
+    const subColor = Streamer.hexToFFColor('#e5e7eb', 1);
+    const boxColor = Streamer.hexToFFColor('#000000', 0.45);
+    const titleFile = files && files.title ? String(files.title).replace(/\\/g, '/') : null;
+    const subFile = files && files.sub ? String(files.sub).replace(/\\/g, '/') : null;
+    const titleOpt = titleFile ? `textfile='${titleFile}':reload=1` : `text='${String(l.title || '').replace(/[:\\]/g, '\\$&')}'`;
+    const subOpt = subFile ? `textfile='${subFile}':reload=1` : `text='${String(l.sub || '').replace(/[:\\]/g, '\\$&')}'`;
+    const titleExpr = `drawtext=${titleOpt}:fontsize=${titleSize}:fontcolor=${titleColor}:x=8:y=(h-2*${titleSize}-16):box=1:boxcolor=${boxColor}:boxborderw=6`;
+    const subExpr = `drawtext=${subOpt}:fontsize=${subSize}:fontcolor=${subColor}:x=8:y=(h-${subSize}-10):box=1:boxcolor=${boxColor}:boxborderw=6`;
+    return [titleExpr, subExpr];
+  }
+
+  static buildScoreboardFilters(sb, files) {
+    const s = sb || {};
+    const lineFile = files && files.line ? String(files.line).replace(/\\/g, '/') : null;
+    const txt = `${String(s.a || '').trim()} ${Number(s.aVal || 0)} - ${Number(s.bVal || 0)} ${String(s.b || '').trim()}`.trim();
+    const show = !!txt;
+    if (!show) return [];
+    const size = 22;
+    const color = Streamer.hexToFFColor('#ffffff', 1);
+    const bg = Streamer.hexToFFColor('#000000', 0.35);
+    const txtOpt = lineFile ? `textfile='${lineFile}':reload=1` : `text='${txt.replace(/[:\\]/g, '\\$&')}'`;
+    const expr = `drawtext=${txtOpt}:fontsize=${size}:fontcolor=${color}:x=(w-text_w)/2:y=8:box=1:boxcolor=${bg}:boxborderw=6`;
+    return [expr];
+  }
+
+  static buildBannerFilters(bn, files) {
+    const b = bn || {};
+    if (!b.show) return [];
+    const size = 20;
+    const color = Streamer.hexToFFColor('#ffffff', 1);
+    const bg = Streamer.hexToFFColor('#111827', 0.6);
+    const filePath = files ? String(files).replace(/\\/g, '/') : null;
+    const txtOpt = filePath ? `textfile='${filePath}':reload=1` : `text='${String(b.text || '').replace(/[:\\]/g, '\\$&')}'`;
+    const bandH = size + 12;
+    const bandY = `8`;
+    const boxExpr = `drawbox=x=0:y=${bandY}:w=w:h=${bandH}:color=${bg}:t=fill`;
+    const textExpr = `drawtext=${txtOpt}:fontsize=${size}:fontcolor=${color}:x=(w-text_w)/2:y=${bandY}`;
+    return [boxExpr, textExpr];
+  }
+
+  static buildLogoSegments(logo) {
+    const l = logo || {};
+    const url = String(l.url || '').trim();
+    if (!url) return [];
+    const width = Number.isFinite(l.width) ? Number(l.width) : (Number.isFinite(l.size) ? Number(l.size) : null);
+    const height = Number.isFinite(l.height) ? Number(l.height) : (Number.isFinite(l.size) ? Number(l.size) : null);
+    const hasW = Number.isFinite(width);
+    const hasH = Number.isFinite(height);
+    const scaleExpr = hasW && hasH ? `scale=${width}:${height}` : (hasW ? `scale=${width}:-1` : (hasH ? `scale=-1:${height}` : `scale=80:80`));
+    const rad = Number(l.rotate || 0) * Math.PI / 180;
+    const rotateExpr = `rotate=${rad}:ow=rotw(iw):oh=roth(ih)`;
+    const opa = Math.max(0, Math.min(1, Number(l.opa || 0.8)));
+    const alphaExpr = `colorchannelmixer=aa=${opa}`;
+    const movieExpr = `movie='${url.replace(/\\/g, '/')}',format=rgba,${scaleExpr},${rotateExpr},${alphaExpr}`;
+    let xExpr = '8';
+    let yExpr = '8';
+    const pos = String(l.pos || 'tr');
+    if (pos === 'tl') { xExpr = '8'; yExpr = '8'; }
+    else if (pos === 'tr') { xExpr = '(W-w-8)'; yExpr = '8'; }
+    else if (pos === 'bl') { xExpr = '8'; yExpr = '(H-h-8)'; }
+    else if (pos === 'br') { xExpr = '(W-w-8)'; yExpr = '(H-h-8)'; }
+    else if (pos === 'custom') {
+      const x = Number.isFinite(l.x) ? Number(l.x) : 8;
+      const y = Number.isFinite(l.y) ? Number(l.y) : 8;
+      xExpr = `${x}`;
+      yExpr = `${y}`;
+    }
+    const overlayExpr = `overlay=${xExpr}:${yExpr}:format=auto:shortest=1`;
+    return [movieExpr, overlayExpr];
   }
 
   getAllActiveStreams() {
