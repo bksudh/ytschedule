@@ -29,6 +29,13 @@ const mimeTypes = {
 
 const server = http.createServer((req, res) => {
   const urlPath = (req.url || '/').split('?')[0];
+  const hasAuth = (req.headers.cookie || '').includes('yt_auth=');
+  if (!hasAuth && (urlPath === '/' || urlPath === '' || urlPath === '/index.html')) {
+    res.statusCode = 302;
+    res.setHeader('Location', '/login');
+    res.end('');
+    return;
+  }
   // Simple proxy for API calls to backend on localhost:3000
   if (urlPath.startsWith('/api/')) {
     const targetHost = 'localhost';

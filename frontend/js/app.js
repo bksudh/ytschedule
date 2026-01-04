@@ -33,7 +33,7 @@
   const previewCache = new Map();
 
   /** Elements */
-  const el = {
+    const el = {
     health: document.getElementById('health-status'),
     streamsCount: document.getElementById('streams-count'),
     navActiveCount: document.getElementById('nav-active-count'),
@@ -166,8 +166,9 @@
     ovLogoX: document.getElementById('ov-logo-x'),
     ovLogoY: document.getElementById('ov-logo-y'),
     ovLogoSize: document.getElementById('ov-logo-size'),
-    ovLogoOpa: document.getElementById('ov-logo-opa'),
-    ovLtTitle: document.getElementById('ov-lt-title'),
+      ovLogoOpa: document.getElementById('ov-logo-opa'),
+      ovLogoRotate: document.getElementById('ov-logo-rotate'),
+      ovLtTitle: document.getElementById('ov-lt-title'),
     ovLtSub: document.getElementById('ov-lt-sub'),
     ovLtShow: document.getElementById('ov-lt-show'),
     ovScoreA: document.getElementById('ov-score-a'),
@@ -240,6 +241,7 @@
   }
   function setupLogin() {
     if (!el.loginForm) return;
+    try { if (el.loginUser) el.loginUser.focus(); } catch (_) {}
     el.loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const u = el.loginUser ? (el.loginUser.value || '').trim() : '';
@@ -256,7 +258,8 @@
         });
         if (el.loginMessage) { el.loginMessage.textContent = 'Logged in'; el.loginMessage.className = 'message success'; }
         setAuthState(true);
-        await initMain();
+        ensureIconStyles();
+        requestAnimationFrame(() => { try { initMain(); } catch (_) {} });
       } catch (err) {
         if (el.loginMessage) { el.loginMessage.textContent = String(err && err.message ? err.message : 'Login failed'); el.loginMessage.className = 'message error'; }
       }
@@ -2037,6 +2040,9 @@
           x: null,
           y: null,
           size: 80,
+          width: null,
+          height: null,
+          rotate: 0,
           opa: 0.8,
           img: null,
         },
@@ -2086,6 +2092,8 @@
       Object.assign(this.state.logo, partial || {});
       if (partial && typeof partial.url === 'string' && partial.url !== this.state.logo.url) {
         this.state.logo.img = null;
+        this.state.logo.width = null;
+        this.state.logo.height = null;
       }
     }
     updateLowerThird(partial) {
@@ -2400,20 +2408,37 @@
       if (!l.img) return;
       const ctx = this.ctx;
       const s = Math.max(20, Number(l.size) || 80);
+      const iw = Number(l.img.naturalWidth || l.img.width || s) || s;
+      const ih = Number(l.img.naturalHeight || l.img.height || s) || s;
+      const ar = iw > 0 && ih > 0 ? (iw / ih) : 1;
+      let w = Number.isFinite(l.width) ? Math.max(20, Number(l.width)) : Math.round(s * ar);
+      let h = Number.isFinite(l.height) ? Math.max(20, Number(l.height)) : s;
       const opa = Math.max(0, Math.min(1, Number(l.opa) || 1));
+      const rotDeg = Number.isFinite(Number(l.rotate)) ? Number(l.rotate) : 0;
+      const rotRad = rotDeg * Math.PI / 180;
       ctx.globalAlpha = opa;
       let x = 8, y = 8;
       const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v)));
       if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
-        x = clamp(l.x, 0, this.canvas.width - s);
-        y = clamp(l.y, 0, this.canvas.height - s);
+        x = clamp(l.x, 0, this.canvas.width - w);
+        y = clamp(l.y, 0, this.canvas.height - h);
       } else {
         if (l.pos === 'tl') { x = 8; y = 8; }
-        if (l.pos === 'tr') { x = this.canvas.width - s - 8; y = 8; }
-        if (l.pos === 'bl') { x = 8; y = this.canvas.height - s - 8; }
-        if (l.pos === 'br') { x = this.canvas.width - s - 8; y = this.canvas.height - s - 8; }
+        if (l.pos === 'tr') { x = this.canvas.width - w - 8; y = 8; }
+        if (l.pos === 'bl') { x = 8; y = this.canvas.height - h - 8; }
+        if (l.pos === 'br') { x = this.canvas.width - w - 8; y = this.canvas.height - h - 8; }
       }
-      ctx.drawImage(l.img, x, y, s, s);
+      ctx.save();
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      if (rotRad !== 0) {
+        ctx.translate(cx, cy);
+        ctx.rotate(rotRad);
+        ctx.drawImage(l.img, -w / 2, -h / 2, w, h);
+      } else {
+        ctx.drawImage(l.img, x, y, w, h);
+      }
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
     drawLowerThird() {
@@ -2572,6 +2597,7 @@
         y: yVal,
         size: Number(el.ovLogoSize?.value || 80),
         opa: Number(el.ovLogoOpa?.value || 0.8),
+        rotate: Number(el.ovLogoRotate?.value || 0),
       });
     };
     const syncLowerThird = () => {
@@ -2608,7 +2634,7 @@
       el.ovClockBgEnable, el.ovClockBg, el.ovClockBgOpa, el.ovClockBgPad, el.ovClockBgShape, el.ovClockBgRadius,
       el.ovClockBorderWidth, el.ovClockBorderColor, el.ovClockBorderOpa, el.ovClockBorderRadius,
       el.ovLogoUrl, el.ovLogoPos, el.ovLogoSize, el.ovLogoOpa,
-      el.ovLogoX, el.ovLogoY,
+      el.ovLogoX, el.ovLogoY, el.ovLogoRotate,
       el.ovLtTitle, el.ovLtSub, el.ovLtShow,
       el.ovScoreA, el.ovScoreB, el.ovScoreAVal, el.ovScoreBVal,
       el.ovBannerText, el.ovBannerShow
@@ -2712,6 +2738,7 @@
     let dragDY = 0;
     let draggingLogo = false;
     let resizingLogo = false;
+    let resizingLogoMode = null;
     let logoDX = 0;
     let logoDY = 0;
     function getMouse(ev) {
@@ -2758,25 +2785,39 @@
       const l = overlay.state.logo;
       if (!l.url || !overlay.state.logo.img) return null;
       const s = Math.max(20, Number(l.size) || 80);
+      const iw = Number(l.img.naturalWidth || l.img.width || s) || s;
+      const ih = Number(l.img.naturalHeight || l.img.height || s) || s;
+      const ar = iw > 0 && ih > 0 ? (iw / ih) : 1;
+      const w = Number.isFinite(l.width) ? Math.max(20, Number(l.width)) : Math.round(s * ar);
+      const h = Number.isFinite(l.height) ? Math.max(20, Number(l.height)) : s;
       let x = 8, y = 8;
       if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
-        x = Math.max(0, Math.min(el.ovCanvas.width - s, Number(l.x)));
-        y = Math.max(0, Math.min(el.ovCanvas.height - s, Number(l.y)));
+        x = Math.max(0, Math.min(el.ovCanvas.width - w, Number(l.x)));
+        y = Math.max(0, Math.min(el.ovCanvas.height - h, Number(l.y)));
       } else {
         if (l.pos === 'tl') { x = 8; y = 8; }
-        if (l.pos === 'tr') { x = el.ovCanvas.width - s - 8; y = 8; }
-        if (l.pos === 'bl') { x = 8; y = el.ovCanvas.height - s - 8; }
-        if (l.pos === 'br') { x = el.ovCanvas.width - s - 8; y = el.ovCanvas.height - s - 8; }
+        if (l.pos === 'tr') { x = el.ovCanvas.width - w - 8; y = 8; }
+        if (l.pos === 'bl') { x = 8; y = el.ovCanvas.height - h - 8; }
+        if (l.pos === 'br') { x = el.ovCanvas.width - w - 8; y = el.ovCanvas.height - h - 8; }
       }
-      return { x, y, w: s, h: s };
+      return { x, y, w, h };
     }
     el.ovCanvas.addEventListener('mousedown', (ev) => {
       const m = getMouse(ev);
       const lr = logoRect();
       if (lr) {
         const nearCorner = (Math.abs(m.x - (lr.x + lr.w)) <= 12) && (Math.abs(m.y - (lr.y + lr.h)) <= 12);
+        const nearRight = (Math.abs(m.x - (lr.x + lr.w)) <= 8) && (m.y >= lr.y + 4) && (m.y <= lr.y + lr.h - 4);
+        const nearBottom = (Math.abs(m.y - (lr.y + lr.h)) <= 8) && (m.x >= lr.x + 4) && (m.x <= lr.x + lr.w - 4);
         if (nearCorner) {
           resizingLogo = true;
+          resizingLogoMode = 'corner';
+        } else if (nearRight) {
+          resizingLogo = true;
+          resizingLogoMode = 'right';
+        } else if (nearBottom) {
+          resizingLogo = true;
+          resizingLogoMode = 'bottom';
         } else if (m.x >= lr.x && m.x <= lr.x + lr.w && m.y >= lr.y && m.y <= lr.y + lr.h) {
           draggingLogo = true;
           logoDX = m.x - lr.x;
@@ -2824,15 +2865,34 @@
         if (el.ovLogoY) el.ovLogoY.value = String(ny);
         maybePush();
       } else if (resizingLogo && lr) {
-        const nx = Math.max(lr.x, Math.min(el.ovCanvas.width - 8, m.x));
-        const ny = Math.max(lr.y, Math.min(el.ovCanvas.height - 8, m.y));
-        const newSize = Math.max(20, Math.min(400, Math.min(nx - lr.x, ny - lr.y)));
-        overlay.updateLogo({ size: newSize });
-        if (el.ovLogoSize) el.ovLogoSize.value = String(newSize);
+        const keepAspect = !!ev.shiftKey;
+        let nx = Math.max(lr.x, Math.min(el.ovCanvas.width - 8, m.x));
+        let ny = Math.max(lr.y, Math.min(el.ovCanvas.height - 8, m.y));
+        let newW = Math.max(20, Math.min(el.ovCanvas.width - lr.x, nx - lr.x));
+        let newH = Math.max(20, Math.min(el.ovCanvas.height - lr.y, ny - lr.y));
+        if (resizingLogoMode === 'right') {
+          overlay.updateLogo({ width: newW, pos: 'custom' });
+          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+        } else if (resizingLogoMode === 'bottom') {
+          overlay.updateLogo({ height: newH, pos: 'custom' });
+          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+        } else {
+          if (keepAspect && lr.h > 0) {
+            const r = lr.w / lr.h;
+            if ((nx - lr.x) / (ny - lr.y) > r) {
+              newW = Math.round(newH * r);
+            } else {
+              newH = Math.round(newW / r);
+            }
+          }
+          overlay.updateLogo({ width: newW, height: newH, pos: 'custom' });
+          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
+        }
+        if (el.ovLogoSize) el.ovLogoSize.value = String(newH);
         maybePush();
       }
     });
-    window.addEventListener('mouseup', () => { draggingClock = false; draggingLogo = false; resizingLogo = false; });
+    window.addEventListener('mouseup', () => { draggingClock = false; draggingLogo = false; resizingLogo = false; resizingLogoMode = null; });
     if (el.ovStart) {
       el.ovStart.addEventListener('click', (e) => {
         e.preventDefault();
@@ -2907,6 +2967,7 @@
         if (el.ovLogoY) el.ovLogoY.value = String(overlay.state.logo.y ?? '');
         if (el.ovLogoSize) el.ovLogoSize.value = String(overlay.state.logo.size);
         if (el.ovLogoOpa) el.ovLogoOpa.value = String(overlay.state.logo.opa);
+        if (el.ovLogoRotate) el.ovLogoRotate.value = String(overlay.state.logo.rotate || 0);
         if (el.ovLtTitle) el.ovLtTitle.value = String(overlay.state.lowerThird.title);
         if (el.ovLtSub) el.ovLtSub.value = String(overlay.state.lowerThird.sub);
         if (el.ovLtShow) el.ovLtShow.checked = !!overlay.state.lowerThird.show;
@@ -2997,8 +3058,11 @@
         if (el.ovClockBorderRadius) el.ovClockBorderRadius.value = String((st.clock && st.clock.borderRadius) || overlay.state.clock.borderRadius);
           if (el.ovLogoUrl) el.ovLogoUrl.value = String((st.logo && st.logo.url) || '');
           if (el.ovLogoPos) el.ovLogoPos.value = String((st.logo && st.logo.pos) || 'tr');
+          if (el.ovLogoX) el.ovLogoX.value = String((st.logo && st.logo.x) ?? '');
+          if (el.ovLogoY) el.ovLogoY.value = String((st.logo && st.logo.y) ?? '');
           if (el.ovLogoSize) el.ovLogoSize.value = String((st.logo && st.logo.size) || 80);
           if (el.ovLogoOpa) el.ovLogoOpa.value = String((st.logo && st.logo.opa) || 0.8);
+          if (el.ovLogoRotate) el.ovLogoRotate.value = String((st.logo && st.logo.rotate) || 0);
           if (el.ovLtTitle) el.ovLtTitle.value = String((st.lowerThird && st.lowerThird.title) || '');
           if (el.ovLtSub) el.ovLtSub.value = String((st.lowerThird && st.lowerThird.sub) || '');
           if (el.ovLtShow) el.ovLtShow.checked = !!(st.lowerThird && st.lowerThird.show);
@@ -3084,8 +3148,11 @@
             if (el.ovClockBorderRadius && data.clock && typeof data.clock.borderRadius !== 'undefined') el.ovClockBorderRadius.value = String(data.clock.borderRadius);
             if (el.ovLogoUrl && data.logo && typeof data.logo.url === 'string') el.ovLogoUrl.value = String(data.logo.url);
             if (el.ovLogoPos && data.logo && typeof data.logo.pos === 'string') el.ovLogoPos.value = String(data.logo.pos);
+            if (el.ovLogoX && data.logo && typeof data.logo.x !== 'undefined') el.ovLogoX.value = String(data.logo.x ?? '');
+            if (el.ovLogoY && data.logo && typeof data.logo.y !== 'undefined') el.ovLogoY.value = String(data.logo.y ?? '');
             if (el.ovLogoSize && data.logo && typeof data.logo.size !== 'undefined') el.ovLogoSize.value = String(data.logo.size);
             if (el.ovLogoOpa && data.logo && typeof data.logo.opa !== 'undefined') el.ovLogoOpa.value = String(data.logo.opa);
+            if (el.ovLogoRotate && data.logo && typeof data.logo.rotate !== 'undefined') el.ovLogoRotate.value = String(data.logo.rotate);
             if (el.ovLtTitle && data.lowerThird && typeof data.lowerThird.title === 'string') el.ovLtTitle.value = String(data.lowerThird.title);
             if (el.ovLtSub && data.lowerThird && typeof data.lowerThird.sub === 'string') el.ovLtSub.value = String(data.lowerThird.sub);
             if (el.ovLtShow && data.lowerThird && typeof data.lowerThird.show !== 'undefined') el.ovLtShow.checked = !!data.lowerThird.show;
@@ -3165,8 +3232,8 @@
     setupActiveActions();
     setupFilters();
     setupCardActions();
-    await Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]);
-    await loadSavedKeys();
+    Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]).catch(() => {});
+    loadSavedKeys().catch(() => {});
     startAutoRefresh();
   }
   async function init() {
@@ -3178,10 +3245,12 @@
       if (!authed) {
         window.location.href = '/login';
         return;
+      } else {
+        setupLogin();
+        setAuthState(true);
+        ensureIconStyles();
+        await initMain();
       }
-      setAuthState(true);
-      ensureIconStyles();
-      await initMain();
     } catch (err) {
       console.error(`[UI] Init error: ${err && err.message ? err.message : err}`);
       showToast('Initialization error. Some features may be limited.', 'error');

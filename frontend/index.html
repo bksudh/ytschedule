@@ -65,10 +65,10 @@
         </div>
         <form id="login-form" class="form-grid" autocomplete="off">
           <div class="form-row">
-            <label class="float"><input id="login-user" type="text" placeholder=" " required /><span>Username</span></label>
+            <label class="float"><input id="login-user" type="text" placeholder=" " required autocomplete="username" /><span>Username</span></label>
           </div>
           <div class="form-row">
-            <label class="float"><input id="login-pass" type="password" placeholder=" " required /><span>Password</span></label>
+            <label class="float"><input id="login-pass" type="password" placeholder=" " required autocomplete="current-password" /><span>Password</span></label>
           </div>
           <div class="form-actions">
             <button type="submit" class="btn primary"><i class="fa-solid fa-arrow-right-to-bracket"></i> Login</button>
@@ -90,7 +90,7 @@
             <label class="float"><input id="url-rtmpUrl" type="text" name="rtmpUrl" placeholder=" " value="rtmps://a.rtmp.youtube.com/live2" required /><span>RTMP URL</span></label>
           </div>
           <div class="form-row">
-            <label class="float"><input id="url-streamKey" type="password" name="streamKey" placeholder=" " required /><span>Stream Key</span></label>
+            <label class="float"><input id="url-streamKey" type="password" name="streamKey" placeholder=" " required autocomplete="off" /><span>Stream Key</span></label>
             <small>
               Find it in YouTube Live Control Room. <a href="#" id="yt-help-link">Need help?</a>
             </small>
@@ -147,7 +147,7 @@
           </div>
           <div class="form-row">
             <label for="playlist-streamKey">Stream Key (playlist)</label>
-            <input id="playlist-streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required />
+            <input id="playlist-streamKey" type="password" name="streamKey" placeholder="Enter your stream key" required autocomplete="off" />
           </div>
           <div class="form-row">
             <label class="float"><select id="playlist-saved-keys"><option value="">Select saved key…</option></select><span>Saved Keys</span></label>
@@ -229,7 +229,7 @@
           </div>
 
           <div class="form-row">
-            <label class="float"><input id="streamKey" type="password" name="streamKey" placeholder=" " required /><span>Stream Key</span></label>
+            <label class="float"><input id="streamKey" type="password" name="streamKey" placeholder=" " required autocomplete="off" /><span>Stream Key</span></label>
           </div>
           <div class="form-row">
             <label class="float"><select id="upload-saved-keys"><option value="">Select saved key…</option></select><span>Saved Keys</span></label>
@@ -580,6 +580,9 @@
                 </div>
                 <div class="form-row">
                   <label class="float"><input id="ov-logo-opa" type="range" min="0" max="1" step="0.05" value="0.8" /><span>Logo Opacity</span></label>
+                </div>
+                <div class="form-row">
+                  <label class="float"><input id="ov-logo-rotate" type="number" min="-180" max="180" step="1" value="0" /><span>Logo Rotate (°)</span></label>
                 </div>
               </div>
             </details>
