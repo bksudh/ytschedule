@@ -33,7 +33,7 @@
   const previewCache = new Map();
 
   /** Elements */
-    const el = {
+  const el = {
     health: document.getElementById('health-status'),
     streamsCount: document.getElementById('streams-count'),
     navActiveCount: document.getElementById('nav-active-count'),
@@ -90,11 +90,6 @@
     urlDeleteSavedKey: document.getElementById('url-delete-saved-key'),
     urlKeyName: document.getElementById('url-key-name'),
     urlSaveKey: document.getElementById('url-save-key'),
-    sectionLogin: document.getElementById('section-login'),
-    loginForm: document.getElementById('login-form'),
-    loginUser: document.getElementById('login-user'),
-    loginPass: document.getElementById('login-pass'),
-    loginMessage: document.getElementById('login-message'),
     playlistSavedKeys: document.getElementById('playlist-saved-keys'),
     playlistUseSavedKey: document.getElementById('playlist-use-saved-key'),
     playlistDeleteSavedKey: document.getElementById('playlist-delete-saved-key'),
@@ -162,13 +157,9 @@
     ovClockBorderRadius: document.getElementById('ov-clock-border-radius'),
     ovLogoUrl: document.getElementById('ov-logo-url'),
     ovLogoPos: document.getElementById('ov-logo-pos'),
-    ovLogoFile: document.getElementById('ov-logo-file'),
-    ovLogoX: document.getElementById('ov-logo-x'),
-    ovLogoY: document.getElementById('ov-logo-y'),
     ovLogoSize: document.getElementById('ov-logo-size'),
-      ovLogoOpa: document.getElementById('ov-logo-opa'),
-      ovLogoRotate: document.getElementById('ov-logo-rotate'),
-      ovLtTitle: document.getElementById('ov-lt-title'),
+    ovLogoOpa: document.getElementById('ov-logo-opa'),
+    ovLtTitle: document.getElementById('ov-lt-title'),
     ovLtSub: document.getElementById('ov-lt-sub'),
     ovLtShow: document.getElementById('ov-lt-show'),
     ovScoreA: document.getElementById('ov-score-a'),
@@ -196,7 +187,7 @@
    * @returns {Promise<any>}
    */
   async function fetchJSON(url, options) {
-    const res = await fetch(url, { cache: 'no-store', credentials: 'include', ...(options || {}) });
+    const res = await fetch(url, { cache: 'no-store', ...(options || {}) });
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try {
@@ -213,57 +204,6 @@
       throw new Error(msg || `HTTP ${res.status}`);
     }
     return res.json();
-  }
-
-  async function isAuthed() {
-    try {
-      const r = await fetchJSON(`${API_URL}/auth/me`);
-      return !!(r && r.user);
-    } catch (_) {
-      return false;
-    }
-  }
-  function setAuthState(auth) {
-    const authed = !!auth;
-    if (el.sectionLogin) el.sectionLogin.hidden = authed;
-    if (!authed) {
-      if (el.nav) el.nav.style.display = 'none';
-      if (el.sectionActiveStreams) el.sectionActiveStreams.hidden = true;
-      if (el.sectionUrlStream) el.sectionUrlStream.hidden = true;
-      if (el.sectionPlaylistForm) el.sectionPlaylistForm.hidden = true;
-      if (el.sectionUpload) el.sectionUpload.hidden = true;
-      if (el.sectionLibraryUpload) el.sectionLibraryUpload.hidden = true;
-      if (el.sectionVideos) el.sectionVideos.hidden = true;
-      if (el.overlaySection) el.overlaySection.hidden = true;
-    } else {
-      if (el.nav) el.nav.style.display = '';
-    }
-  }
-  function setupLogin() {
-    if (!el.loginForm) return;
-    try { if (el.loginUser) el.loginUser.focus(); } catch (_) {}
-    el.loginForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const u = el.loginUser ? (el.loginUser.value || '').trim() : '';
-      const p = el.loginPass ? (el.loginPass.value || '').trim() : '';
-      if (!u || !p) {
-        if (el.loginMessage) { el.loginMessage.textContent = 'Enter username and password'; el.loginMessage.className = 'message error'; }
-        return;
-      }
-      try {
-        await fetchJSON(`${API_URL}/auth/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: u, password: p }),
-        });
-        if (el.loginMessage) { el.loginMessage.textContent = 'Logged in'; el.loginMessage.className = 'message success'; }
-        setAuthState(true);
-        ensureIconStyles();
-        requestAnimationFrame(() => { try { initMain(); } catch (_) {} });
-      } catch (err) {
-        if (el.loginMessage) { el.loginMessage.textContent = String(err && err.message ? err.message : 'Login failed'); el.loginMessage.className = 'message error'; }
-      }
-    });
   }
 
   /**
@@ -351,16 +291,6 @@
       const label = t === 'dark' ? 'Light' : 'Dark';
       el.themeToggle.innerHTML = `<i class="${icon}"></i> ${label}`;
     }
-  }
-  function ensureIconStyles() {
-    if (document.querySelector('link[data-fa]')) return;
-    const l = document.createElement('link');
-    l.rel = 'stylesheet';
-    l.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css';
-    l.crossOrigin = 'anonymous';
-    l.referrerPolicy = 'no-referrer';
-    l.setAttribute('data-fa', '1');
-    document.head.appendChild(l);
   }
   function setupTheme() {
     const saved = (() => { try { return localStorage.getItem('theme'); } catch (_) { return null; } })();
@@ -1045,7 +975,6 @@
       const rtmpInput = el.form.querySelector('input[name="rtmpUrl"]');
       const keyInput = el.form.querySelector('input[name="streamKey"]');
       const loopInput = document.getElementById('loop');
-      const repeatInput = document.getElementById('repeatDaily');
 
       const useLib = !!el.useLibrarySource?.checked;
       const libId = el.librarySourceSelect?.value || '';
@@ -1056,7 +985,6 @@
       const streamKey = keyInput?.value?.trim();
       const stopAt = stopInput?.value || '';
       const loop = !!loopInput?.checked;
-      const repeatDaily = !!repeatInput?.checked;
 
       // Validation
       if (useLib) {
@@ -1097,7 +1025,6 @@
           streamKey,
           status: 'scheduled',
           loop,
-          repeatDaily,
         };
         if (stopAt) body.stopTime = new Date(stopAt).toISOString();
         if (title) body.title = title; // optional override
@@ -1118,132 +1045,53 @@
           submitBtn.classList.remove('loading');
         });
       } else {
-        const useChunked = file.size > (50 * 1024 * 1024);
-        if (useChunked) {
-          const uploadId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
-          let chunkSize = 8 * 1024 * 1024;
+        // Upload flow as before
+        const fd = new FormData();
+        fd.append('title', title);
+        fd.append('video', file, file.name);
+        fd.append('scheduleTime', new Date(scheduleTime).toISOString());
+        if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
+        fd.append('rtmpUrl', rtmpUrl);
+        fd.append('streamKey', streamKey);
+        fd.append('loop', loop ? 'true' : 'false');
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_URL}/videos/upload`);
+        xhr.upload.onprogress = (ev) => {
+          if (!ev.lengthComputable) return;
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          el.progress.hidden = false;
+          el.progressBar.style.width = `${pct}%`;
+        };
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState !== 4) return;
           try {
-            const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-            const mbps = conn && typeof conn.downlink === 'number' ? conn.downlink : 0;
-            if (mbps >= 100) chunkSize = 32 * 1024 * 1024;
-            else if (mbps >= 20) chunkSize = 16 * 1024 * 1024;
-            else if (mbps >= 5) chunkSize = 8 * 1024 * 1024;
-            else chunkSize = 4 * 1024 * 1024;
-          } catch (_) {}
-          const total = Math.ceil(file.size / chunkSize);
-          let sent = 0;
-          const sendChunk = (index) => {
-            const start = index * chunkSize;
-            const end = Math.min(file.size, start + chunkSize);
-            const blob = file.slice(start, end);
-            const fd = new FormData();
-            fd.append('uploadId', uploadId);
-            fd.append('index', String(index));
-            fd.append('total', String(total));
-            fd.append('filename', file.name);
-            fd.append('chunk', blob, `chunk-${index}`);
-            if (index === total - 1) {
-              fd.append('title', title);
-              fd.append('scheduleTime', new Date(scheduleTime).toISOString());
-              if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
-              fd.append('rtmpUrl', rtmpUrl);
-              fd.append('streamKey', streamKey);
-              fd.append('loop', loop ? 'true' : 'false');
-              fd.append('repeatDaily', repeatDaily ? 'true' : 'false');
+            const isOk = xhr.status >= 200 && xhr.status < 300;
+            const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
+            if (isOk) {
+              showToast('Upload successful', 'success');
+              el.form.reset();
+              loadVideos();
+            } else {
+              const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
+              setMessage(msg, 'error');
+              showToast('Upload failed', 'error');
             }
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `${API_URL}/videos/upload/chunk`);
-            xhr.upload.onprogress = (ev) => {
-              const loaded = Number(ev.loaded || 0);
-              const pct = Math.round(((sent + loaded) / file.size) * 100);
-              el.progress.hidden = false;
-              el.progressBar.style.width = `${pct}%`;
-            };
-            xhr.onreadystatechange = () => {
-              if (xhr.readyState !== 4) return;
-              const ok = xhr.status >= 200 && xhr.status < 300;
-              if (!ok) {
-                const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
-                setMessage(msg, 'error');
-                showToast('Upload failed', 'error');
-                submitBtn.disabled = false;
-                submitBtn.classList.remove('loading');
-                el.progressBar.style.width = '0%';
-                el.progress.hidden = true;
-                return;
-              }
-              sent += blob.size;
-              if (index + 1 < total) {
-                sendChunk(index + 1);
-              } else {
-                showToast('Upload successful', 'success');
-                el.form.reset();
-                loadVideos();
-                submitBtn.disabled = false;
-                submitBtn.classList.remove('loading');
-                el.progressBar.style.width = '0%';
-                el.progress.hidden = true;
-              }
-            };
-            xhr.onerror = () => {
-              setMessage('Network error during upload.', 'error');
-              showToast('Network error', 'error');
-              submitBtn.disabled = false;
-              submitBtn.classList.remove('loading');
-              el.progressBar.style.width = '0%';
-              el.progress.hidden = true;
-            };
-            xhr.send(fd);
-          };
-          sendChunk(0);
-        } else {
-          const fd = new FormData();
-          fd.append('title', title);
-          fd.append('video', file, file.name);
-          fd.append('scheduleTime', new Date(scheduleTime).toISOString());
-          if (stopAt) fd.append('stopTime', new Date(stopAt).toISOString());
-          fd.append('rtmpUrl', rtmpUrl);
-          fd.append('streamKey', streamKey);
-          fd.append('loop', loop ? 'true' : 'false');
-          fd.append('repeatDaily', repeatDaily ? 'true' : 'false');
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', `${API_URL}/videos/upload`);
-          xhr.upload.onprogress = (ev) => {
-            if (!ev.lengthComputable) return;
-            const pct = Math.round((ev.loaded / ev.total) * 100);
-            el.progress.hidden = false;
-            el.progressBar.style.width = `${pct}%`;
-          };
-          xhr.onreadystatechange = () => {
-            if (xhr.readyState !== 4) return;
-            try {
-              const isOk = xhr.status >= 200 && xhr.status < 300;
-              const data = isOk ? JSON.parse(xhr.responseText || '{}') : null;
-              if (isOk) {
-                showToast('Upload successful', 'success');
-                el.form.reset();
-                loadVideos();
-              } else {
-                const msg = xhr.responseText || `Upload failed: HTTP ${xhr.status}`;
-                setMessage(msg, 'error');
-                showToast('Upload failed', 'error');
-              }
-            } catch (e) {
-              setMessage('Unexpected response from server.', 'error');
-            }
-          };
-          xhr.onerror = () => {
-            setMessage('Network error during upload.', 'error');
-            showToast('Network error', 'error');
-          };
-          xhr.onloadend = () => {
-            submitBtn.disabled = false;
-            submitBtn.classList.remove('loading');
-            el.progressBar.style.width = '0%';
-            el.progress.hidden = true;
-          };
-          xhr.send(fd);
-        }
+          } catch (e) {
+            setMessage('Unexpected response from server.', 'error');
+          }
+        };
+        xhr.onerror = () => {
+          setMessage('Network error during upload.', 'error');
+          showToast('Network error', 'error');
+        };
+        xhr.onloadend = () => {
+          submitBtn.disabled = false;
+          submitBtn.classList.remove('loading');
+          el.progressBar.style.width = '0%';
+          el.progress.hidden = true;
+        };
+        xhr.send(fd);
       }
     });
   }
@@ -2037,12 +1885,7 @@
         logo: {
           url: '',
           pos: 'tr',
-          x: null,
-          y: null,
           size: 80,
-          width: null,
-          height: null,
-          rotate: 0,
           opa: 0.8,
           img: null,
         },
@@ -2092,8 +1935,6 @@
       Object.assign(this.state.logo, partial || {});
       if (partial && typeof partial.url === 'string' && partial.url !== this.state.logo.url) {
         this.state.logo.img = null;
-        this.state.logo.width = null;
-        this.state.logo.height = null;
       }
     }
     updateLowerThird(partial) {
@@ -2408,37 +2249,13 @@
       if (!l.img) return;
       const ctx = this.ctx;
       const s = Math.max(20, Number(l.size) || 80);
-      const iw = Number(l.img.naturalWidth || l.img.width || s) || s;
-      const ih = Number(l.img.naturalHeight || l.img.height || s) || s;
-      const ar = iw > 0 && ih > 0 ? (iw / ih) : 1;
-      let w = Number.isFinite(l.width) ? Math.max(20, Number(l.width)) : Math.round(s * ar);
-      let h = Number.isFinite(l.height) ? Math.max(20, Number(l.height)) : s;
       const opa = Math.max(0, Math.min(1, Number(l.opa) || 1));
-      const rotDeg = Number.isFinite(Number(l.rotate)) ? Number(l.rotate) : 0;
-      const rotRad = rotDeg * Math.PI / 180;
       ctx.globalAlpha = opa;
       let x = 8, y = 8;
-      const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v)));
-      if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
-        x = clamp(l.x, 0, this.canvas.width - w);
-        y = clamp(l.y, 0, this.canvas.height - h);
-      } else {
-        if (l.pos === 'tl') { x = 8; y = 8; }
-        if (l.pos === 'tr') { x = this.canvas.width - w - 8; y = 8; }
-        if (l.pos === 'bl') { x = 8; y = this.canvas.height - h - 8; }
-        if (l.pos === 'br') { x = this.canvas.width - w - 8; y = this.canvas.height - h - 8; }
-      }
-      ctx.save();
-      const cx = x + w / 2;
-      const cy = y + h / 2;
-      if (rotRad !== 0) {
-        ctx.translate(cx, cy);
-        ctx.rotate(rotRad);
-        ctx.drawImage(l.img, -w / 2, -h / 2, w, h);
-      } else {
-        ctx.drawImage(l.img, x, y, w, h);
-      }
-      ctx.restore();
+      if (l.pos === 'tr') { x = this.canvas.width - s - 8; y = 8; }
+      if (l.pos === 'bl') { x = 8; y = this.canvas.height - s - 8; }
+      if (l.pos === 'br') { x = this.canvas.width - s - 8; y = this.canvas.height - s - 8; }
+      ctx.drawImage(l.img, x, y, s, s);
       ctx.globalAlpha = 1;
     }
     drawLowerThird() {
@@ -2526,7 +2343,6 @@
     const syncTicker = () => {
       overlay.updateTicker({
         text: el.ovTickerText?.value || '',
-        show: !!(el.ovTickerText && el.ovTickerText.value && el.ovTickerText.value.trim().length > 0),
         speed: Number(el.ovTickerSpeed?.value || 120),
         font: el.ovTickerFont?.value || 'Segoe UI',
         size: Number(el.ovTickerSize?.value || 24),
@@ -2585,20 +2401,11 @@
       });
     };
     const syncLogo = () => {
-      const xRaw = el.ovLogoX?.value;
-      const yRaw = el.ovLogoY?.value;
-      const xVal = (typeof xRaw === 'string' && xRaw.length > 0) ? Number(xRaw) : overlay.state.logo.x;
-      const yVal = (typeof yRaw === 'string' && yRaw.length > 0) ? Number(yRaw) : overlay.state.logo.y;
-      const posRaw = el.ovLogoPos?.value || 'tr';
-      const pos = (posRaw === 'custom' || Number.isFinite(xVal) || Number.isFinite(yVal)) ? 'custom' : posRaw;
       overlay.updateLogo({
         url: el.ovLogoUrl?.value || '',
-        pos,
-        x: xVal,
-        y: yVal,
+        pos: el.ovLogoPos?.value || 'tr',
         size: Number(el.ovLogoSize?.value || 80),
         opa: Number(el.ovLogoOpa?.value || 0.8),
-        rotate: Number(el.ovLogoRotate?.value || 0),
       });
     };
     const syncLowerThird = () => {
@@ -2635,7 +2442,6 @@
       el.ovClockBgEnable, el.ovClockBg, el.ovClockBgOpa, el.ovClockBgPad, el.ovClockBgShape, el.ovClockBgRadius,
       el.ovClockBorderWidth, el.ovClockBorderColor, el.ovClockBorderOpa, el.ovClockBorderRadius,
       el.ovLogoUrl, el.ovLogoPos, el.ovLogoSize, el.ovLogoOpa,
-      el.ovLogoX, el.ovLogoY, el.ovLogoRotate,
       el.ovLtTitle, el.ovLtSub, el.ovLtShow,
       el.ovScoreA, el.ovScoreB, el.ovScoreAVal, el.ovScoreBVal,
       el.ovBannerText, el.ovBannerShow
@@ -2648,53 +2454,6 @@
         maybePush();
       });
     });
-    function updateLogoXYEnabled() {
-      const mode = (el.ovLogoPos?.value || 'tr');
-      const enabled = mode === 'custom';
-      if (el.ovLogoX) { el.ovLogoX.disabled = !enabled; el.ovLogoX.parentElement?.classList.toggle('disabled', !enabled); }
-      if (el.ovLogoY) { el.ovLogoY.disabled = !enabled; el.ovLogoY.parentElement?.classList.toggle('disabled', !enabled); }
-    }
-    if (el.ovLogoPos) {
-      el.ovLogoPos.addEventListener('change', () => {
-        updateLogoXYEnabled();
-        syncLogo();
-        maybePush();
-      });
-    }
-    if (el.ovLogoX) {
-      el.ovLogoX.addEventListener('input', () => {
-        if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-        updateLogoXYEnabled();
-        syncLogo();
-        maybePush();
-      });
-    }
-    if (el.ovLogoY) {
-      el.ovLogoY.addEventListener('input', () => {
-        if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-        updateLogoXYEnabled();
-        syncLogo();
-        maybePush();
-      });
-    }
-    if (el.ovLogoFile) {
-      el.ovLogoFile.addEventListener('change', () => {
-        const f = el.ovLogoFile.files && el.ovLogoFile.files[0];
-        if (!f) return;
-        const okTypes = ['image/png','image/jpeg','image/jpg','image/webp','image/gif'];
-        if (!okTypes.includes(f.type)) { showToast('Invalid image type', 'error'); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = String(reader.result || '');
-          overlay.updateLogo({ url: dataUrl });
-          if (el.ovLogoUrl) el.ovLogoUrl.value = dataUrl;
-          syncLogo();
-          maybePush();
-        };
-        reader.onerror = () => showToast('Image load failed', 'error');
-        reader.readAsDataURL(f);
-      });
-    }
     function updateTickerYEnabled() {
       if (el.ovTickerY) { el.ovTickerY.disabled = false; el.ovTickerY.parentElement?.classList.remove('disabled'); }
     }
@@ -2733,15 +2492,9 @@
     updateTickerYEnabled();
     updateTickerBgInputsEnabled();
     updateNowLiveYEnabled();
-    updateLogoXYEnabled();
     let draggingClock = false;
     let dragDX = 0;
     let dragDY = 0;
-    let draggingLogo = false;
-    let resizingLogo = false;
-    let resizingLogoMode = null;
-    let logoDX = 0;
-    let logoDY = 0;
     function getMouse(ev) {
       const r = el.ovCanvas.getBoundingClientRect();
       const sx = el.ovCanvas.width / r.width;
@@ -2781,57 +2534,6 @@
         dragDY = m.y - cy;
       }
     });
-    function logoRect() {
-      if (!overlay || !overlay.ctx) return null;
-      const l = overlay.state.logo;
-      if (!l.url || !overlay.state.logo.img) return null;
-      const s = Math.max(20, Number(l.size) || 80);
-      const iw = Number(l.img.naturalWidth || l.img.width || s) || s;
-      const ih = Number(l.img.naturalHeight || l.img.height || s) || s;
-      const ar = iw > 0 && ih > 0 ? (iw / ih) : 1;
-      const w = Number.isFinite(l.width) ? Math.max(20, Number(l.width)) : Math.round(s * ar);
-      const h = Number.isFinite(l.height) ? Math.max(20, Number(l.height)) : s;
-      let x = 8, y = 8;
-      if (l.pos === 'custom' && Number.isFinite(l.x) && Number.isFinite(l.y)) {
-        x = Math.max(0, Math.min(el.ovCanvas.width - w, Number(l.x)));
-        y = Math.max(0, Math.min(el.ovCanvas.height - h, Number(l.y)));
-      } else {
-        if (l.pos === 'tl') { x = 8; y = 8; }
-        if (l.pos === 'tr') { x = el.ovCanvas.width - w - 8; y = 8; }
-        if (l.pos === 'bl') { x = 8; y = el.ovCanvas.height - h - 8; }
-        if (l.pos === 'br') { x = el.ovCanvas.width - w - 8; y = el.ovCanvas.height - h - 8; }
-      }
-      return { x, y, w, h };
-    }
-    el.ovCanvas.addEventListener('mousedown', (ev) => {
-      const m = getMouse(ev);
-      const lr = logoRect();
-      if (lr) {
-        const nearCorner = (Math.abs(m.x - (lr.x + lr.w)) <= 12) && (Math.abs(m.y - (lr.y + lr.h)) <= 12);
-        const nearRight = (Math.abs(m.x - (lr.x + lr.w)) <= 8) && (m.y >= lr.y + 4) && (m.y <= lr.y + lr.h - 4);
-        const nearBottom = (Math.abs(m.y - (lr.y + lr.h)) <= 8) && (m.x >= lr.x + 4) && (m.x <= lr.x + lr.w - 4);
-        if (nearCorner) {
-          resizingLogo = true;
-          resizingLogoMode = 'corner';
-        } else if (nearRight) {
-          resizingLogo = true;
-          resizingLogoMode = 'right';
-        } else if (nearBottom) {
-          resizingLogo = true;
-          resizingLogoMode = 'bottom';
-        } else if (m.x >= lr.x && m.x <= lr.x + lr.w && m.y >= lr.y && m.y <= lr.y + lr.h) {
-          draggingLogo = true;
-          logoDX = m.x - lr.x;
-          logoDY = m.y - lr.y;
-          overlay.updateLogo({ pos: 'custom', x: lr.x, y: lr.y });
-          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-          updateLogoXYEnabled();
-          if (el.ovLogoX) el.ovLogoX.value = String(lr.x);
-          if (el.ovLogoY) el.ovLogoY.value = String(lr.y);
-          maybePush();
-        }
-      }
-    });
     window.addEventListener('mousemove', (ev) => {
       if (!draggingClock) return;
       const m = getMouse(ev);
@@ -2853,47 +2555,7 @@
       if (el.ovClockY) el.ovClockY.value = String(ny);
       maybePush();
     });
-    window.addEventListener('mousemove', (ev) => {
-      const m = getMouse(ev);
-      const lr = logoRect();
-      if (draggingLogo && lr) {
-        let nx = m.x - logoDX;
-        let ny = m.y - logoDY;
-        nx = Math.max(0, Math.min(el.ovCanvas.width - lr.w, nx));
-        ny = Math.max(0, Math.min(el.ovCanvas.height - lr.h, ny));
-        overlay.updateLogo({ pos: 'custom', x: nx, y: ny });
-        if (el.ovLogoX) el.ovLogoX.value = String(nx);
-        if (el.ovLogoY) el.ovLogoY.value = String(ny);
-        maybePush();
-      } else if (resizingLogo && lr) {
-        const keepAspect = !!ev.shiftKey;
-        let nx = Math.max(lr.x, Math.min(el.ovCanvas.width - 8, m.x));
-        let ny = Math.max(lr.y, Math.min(el.ovCanvas.height - 8, m.y));
-        let newW = Math.max(20, Math.min(el.ovCanvas.width - lr.x, nx - lr.x));
-        let newH = Math.max(20, Math.min(el.ovCanvas.height - lr.y, ny - lr.y));
-        if (resizingLogoMode === 'right') {
-          overlay.updateLogo({ width: newW, pos: 'custom' });
-          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-        } else if (resizingLogoMode === 'bottom') {
-          overlay.updateLogo({ height: newH, pos: 'custom' });
-          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-        } else {
-          if (keepAspect && lr.h > 0) {
-            const r = lr.w / lr.h;
-            if ((nx - lr.x) / (ny - lr.y) > r) {
-              newW = Math.round(newH * r);
-            } else {
-              newH = Math.round(newW / r);
-            }
-          }
-          overlay.updateLogo({ width: newW, height: newH, pos: 'custom' });
-          if (el.ovLogoPos) el.ovLogoPos.value = 'custom';
-        }
-        if (el.ovLogoSize) el.ovLogoSize.value = String(newH);
-        maybePush();
-      }
-    });
-    window.addEventListener('mouseup', () => { draggingClock = false; draggingLogo = false; resizingLogo = false; resizingLogoMode = null; });
+    window.addEventListener('mouseup', () => { draggingClock = false; });
     if (el.ovStart) {
       el.ovStart.addEventListener('click', (e) => {
         e.preventDefault();
@@ -2964,11 +2626,8 @@
         if (el.ovClockBgRadius) el.ovClockBgRadius.value = String(overlay.state.clock.bgRadius);
         if (el.ovLogoUrl) el.ovLogoUrl.value = String(overlay.state.logo.url);
         if (el.ovLogoPos) el.ovLogoPos.value = String(overlay.state.logo.pos);
-        if (el.ovLogoX) el.ovLogoX.value = String(overlay.state.logo.x ?? '');
-        if (el.ovLogoY) el.ovLogoY.value = String(overlay.state.logo.y ?? '');
         if (el.ovLogoSize) el.ovLogoSize.value = String(overlay.state.logo.size);
         if (el.ovLogoOpa) el.ovLogoOpa.value = String(overlay.state.logo.opa);
-        if (el.ovLogoRotate) el.ovLogoRotate.value = String(overlay.state.logo.rotate || 0);
         if (el.ovLtTitle) el.ovLtTitle.value = String(overlay.state.lowerThird.title);
         if (el.ovLtSub) el.ovLtSub.value = String(overlay.state.lowerThird.sub);
         if (el.ovLtShow) el.ovLtShow.checked = !!overlay.state.lowerThird.show;
@@ -3059,11 +2718,8 @@
         if (el.ovClockBorderRadius) el.ovClockBorderRadius.value = String((st.clock && st.clock.borderRadius) || overlay.state.clock.borderRadius);
           if (el.ovLogoUrl) el.ovLogoUrl.value = String((st.logo && st.logo.url) || '');
           if (el.ovLogoPos) el.ovLogoPos.value = String((st.logo && st.logo.pos) || 'tr');
-          if (el.ovLogoX) el.ovLogoX.value = String((st.logo && st.logo.x) ?? '');
-          if (el.ovLogoY) el.ovLogoY.value = String((st.logo && st.logo.y) ?? '');
           if (el.ovLogoSize) el.ovLogoSize.value = String((st.logo && st.logo.size) || 80);
           if (el.ovLogoOpa) el.ovLogoOpa.value = String((st.logo && st.logo.opa) || 0.8);
-          if (el.ovLogoRotate) el.ovLogoRotate.value = String((st.logo && st.logo.rotate) || 0);
           if (el.ovLtTitle) el.ovLtTitle.value = String((st.lowerThird && st.lowerThird.title) || '');
           if (el.ovLtSub) el.ovLtSub.value = String((st.lowerThird && st.lowerThird.sub) || '');
           if (el.ovLtShow) el.ovLtShow.checked = !!(st.lowerThird && st.lowerThird.show);
@@ -3149,11 +2805,8 @@
             if (el.ovClockBorderRadius && data.clock && typeof data.clock.borderRadius !== 'undefined') el.ovClockBorderRadius.value = String(data.clock.borderRadius);
             if (el.ovLogoUrl && data.logo && typeof data.logo.url === 'string') el.ovLogoUrl.value = String(data.logo.url);
             if (el.ovLogoPos && data.logo && typeof data.logo.pos === 'string') el.ovLogoPos.value = String(data.logo.pos);
-            if (el.ovLogoX && data.logo && typeof data.logo.x !== 'undefined') el.ovLogoX.value = String(data.logo.x ?? '');
-            if (el.ovLogoY && data.logo && typeof data.logo.y !== 'undefined') el.ovLogoY.value = String(data.logo.y ?? '');
             if (el.ovLogoSize && data.logo && typeof data.logo.size !== 'undefined') el.ovLogoSize.value = String(data.logo.size);
             if (el.ovLogoOpa && data.logo && typeof data.logo.opa !== 'undefined') el.ovLogoOpa.value = String(data.logo.opa);
-            if (el.ovLogoRotate && data.logo && typeof data.logo.rotate !== 'undefined') el.ovLogoRotate.value = String(data.logo.rotate);
             if (el.ovLtTitle && data.lowerThird && typeof data.lowerThird.title === 'string') el.ovLtTitle.value = String(data.lowerThird.title);
             if (el.ovLtSub && data.lowerThird && typeof data.lowerThird.sub === 'string') el.ovLtSub.value = String(data.lowerThird.sub);
             if (el.ovLtShow && data.lowerThird && typeof data.lowerThird.show !== 'undefined') el.ovLtShow.checked = !!data.lowerThird.show;
@@ -3222,37 +2875,27 @@
     }, REFRESH_INTERVAL_MS);
   }
 
-  async function initMain() {
-    setupNavigation();
-    setupUpload();
-    setupLibraryUpload();
-    setupPlaylistForm();
-    setupUrlStreamForm();
-    setupSavedKeysUI();
-    setupOverlayStudio();
-    setupActiveActions();
-    setupFilters();
-    setupCardActions();
-    Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]).catch(() => {});
-    loadSavedKeys().catch(() => {});
-    startAutoRefresh();
-  }
+  /** Init */
   async function init() {
     setBusy(true);
     try {
       setupTheme();
-      await loadHealth();
-      const authed = await isAuthed();
-      if (!authed) {
-        window.location.href = '/login';
-        return;
-      } else {
-        setupLogin();
-        setAuthState(true);
-        ensureIconStyles();
-        await initMain();
-      }
+      setupNavigation();
+      setupUpload();
+      setupLibraryUpload();
+      setupPlaylistForm();
+      setupUrlStreamForm();
+      setupSavedKeysUI();
+      setupOverlayStudio();
+      setupActiveActions();
+      setupFilters();
+      setupCardActions();
+      // Load health and videos in parallel to avoid long perceived buffering
+      await Promise.all([loadHealth(), loadVideos(), loadPlaylists(), loadActiveStreams()]);
+      await loadSavedKeys();
+      startAutoRefresh();
     } catch (err) {
+      // Ensure spinner never gets stuck if an unexpected error occurs
       console.error(`[UI] Init error: ${err && err.message ? err.message : err}`);
       showToast('Initialization error. Some features may be limited.', 'error');
     } finally {
