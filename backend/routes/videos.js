@@ -61,15 +61,45 @@ function handleValidationErrors(req, res) {
 async function generateThumbnail(inputPath, outPath) {
   return new Promise((resolve) => {
     try {
-      const cmd = ffmpeg(inputPath)
+      const src = path.resolve(inputPath);
+      const dst = path.resolve(outPath);
+      const cmd = ffmpeg(src)
         .inputOptions(['-ss', '00:00:01'])
-        .outputOptions(['-vframes', '1', '-vf', 'scale=480:-2', '-q:v', '2'])
-        .output(outPath)
+        .outputOptions(['-y', '-vframes', '1', '-vf', 'scale=480:-2', '-q:v', '2'])
+        .output(dst)
         .on('end', () => resolve(true))
         .on('error', () => resolve(false));
       cmd.run();
     } catch (_) {
       resolve(false);
+    }
+  });
+}
+
+async function generateThumbnailDataUrl(inputPath) {
+  return new Promise((resolve) => {
+    try {
+      const src = path.resolve(inputPath);
+      const chunks = [];
+      const cmd = ffmpeg(src)
+        .inputOptions(['-ss', '00:00:01'])
+        .outputOptions(['-vframes', '1', '-vf', 'scale=480:-2', '-q:v', '2'])
+        .format('image2pipe')
+        .on('end', () => {
+          try {
+            const buf = Buffer.concat(chunks);
+            const b64 = buf.toString('base64');
+            resolve(b64 ? `data:image/jpeg;base64,${b64}` : '');
+          } catch (_) {
+            resolve('');
+          }
+        })
+        .on('error', () => resolve(''));
+      const stream = cmd.pipe();
+      stream.on('data', (d) => { try { chunks.push(d); } catch (_) {} });
+      stream.on('error', () => resolve(''));
+    } catch (_) {
+      resolve('');
     }
   });
 }
@@ -655,7 +685,13 @@ router.post(
       const thumbName = `${video._id}.jpg`;
       const thumbPath = path.join(thumbsDir, thumbName);
       const ok = await generateThumbnail(video.filepath, thumbPath);
-      if (!ok) return res.status(500).json({ error: 'Thumbnail generation failed' });
+      if (!ok) {
+        const dataUrl = await generateThumbnailDataUrl(video.filepath);
+        if (dataUrl) {
+          return res.json({ success: true, thumbnailUrl: dataUrl });
+        }
+        return res.status(500).json({ error: 'Thumbnail generation failed' });
+      }
       video.thumbnailPath = thumbPath;
       video.thumbnailUrl = `/api/videos/${video._id}/thumbnail`;
       await video.save();
